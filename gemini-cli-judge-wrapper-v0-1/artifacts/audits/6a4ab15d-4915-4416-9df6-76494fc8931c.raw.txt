@@ -1,0 +1,57 @@
+{
+  "session_id": "a448a4a5-c880-44ea-abdf-dadce60a7c23",
+  "response": "{\n  \"verdict\": \"flag\",\n  \"summary\": \"The remediation poll ecb8bc8f is incomplete because it fails to resolve the high-severity contradiction in FORCED_RULE_GJ_09. While GJ_01 and LDR_02 were updated to return ratification authority to the sovereign (Tommy) and adopt an advisory-only framing, GJ_09 remains in the protocol registry with explicitly contradicting language: 'Council convergence returns to Judge for final ratification, NOT to Tommy.' This preserves the very overreach the remediation aimed to eliminate. Furthermore, LDR_01 and LDR_02 are missing from the substrate registry despite being ratified and referenced as active, violating FORCED_RULE_substrate_import_completion.\",\n  \"flags\": [\n    {\n      \"type\": \"contradiction\",\n      \"severity\": \"high\",\n      \"citation\": \"GJ_09: \\\"Council convergence returns to Judge for final ratification, NOT to Tommy.\\\"\",\n      \"note\": \"This language directly contradicts the remediated GJ_01 and LDR_02 which return ratification authority to Tommy.\",\n      \"recommended_next_step\": \"Amend GJ_09 to strike the autonomous ratification clause and align its language with the advisory-router framing adopted in GJ_01.\"\n    },\n    {\n      \"type\": \"missing_scope\",\n      \"severity\": \"medium\",\n      \"citation\": \"FORCED_RULE_substrate_import_completion\",\n      \"note\": \"FORCED_RULE_LDR_01 and LDR_02 are missing from the substrate registry despite being part of a 'shipped' project remediation.\",\n      \"recommended_next_step\": \"Import LDR_01 and LDR_02 into the rules table and ensure they are reflected in the protocol corpus.\"\n    },\n    {\n      \"type\": \"contradiction\",\n      \"severity\": \"medium\",\n      \"citation\": \"GJ_01: \\\"In adjudicator mode the Judge IS a decision-maker — but only on Tier-1/2 work...\\\"\",\n      \"note\": \"The remediation fix R-Rem-X1 strikes this phrase from GJ_01, but its persistence in the registry during the audit phase creates a conflict with the intended protocol state.\",\n      \"recommended_next_step\": \"Ensure the final substrate update for GJ_01 successfully strikes the 'decision-maker' and 'returns to Judge for ratification' language as converged in ecb8bc8f.\"\n    }\n  ],\n  \"confidence\": \"high\"\n}",
+  "stats": {
+    "models": {
+      "gemini-3-flash-preview": {
+        "api": {
+          "totalRequests": 1,
+          "totalErrors": 0,
+          "totalLatencyMs": 60052
+        },
+        "tokens": {
+          "input": 88449,
+          "prompt": 88449,
+          "candidates": 559,
+          "total": 99821,
+          "cached": 0,
+          "thoughts": 10813,
+          "tool": 0
+        },
+        "roles": {
+          "main": {
+            "totalRequests": 1,
+            "totalErrors": 0,
+            "totalLatencyMs": 60052,
+            "tokens": {
+              "input": 88449,
+              "prompt": 88449,
+              "candidates": 559,
+              "total": 99821,
+              "cached": 0,
+              "thoughts": 10813,
+              "tool": 0
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "totalCalls": 0,
+      "totalSuccess": 0,
+      "totalFail": 0,
+      "totalDurationMs": 0,
+      "totalDecisions": {
+        "accept": 0,
+        "reject": 0,
+        "modify": 0,
+        "auto_accept": 0
+      },
+      "byName": {}
+    },
+    "files": {
+      "totalLinesAdded": 0,
+      "totalLinesRemoved": 0
+    }
+  }
+}

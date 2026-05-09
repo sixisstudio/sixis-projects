@@ -1,0 +1,37 @@
+# Dashboard has its own repo (sixisstudio/sixis-dashboard) — exclude here
+dashboard_v0_1/
+
+# Secrets
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Local SQLite caches
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.venv/
+**/venv/
+**/.pytest_cache/
+
+# Node
+**/node_modules/
+
+# OS
+**/.DS_Store
+**/Thumbs.db
+
+# Editor
+**/.vscode/
+**/.idea/
+
+# Audit transcripts (operational state, not source)
+~/.sixis/
+
+# Empty raw.txt audit fallbacks (only useful when JSON parse fails)
+artifacts/audits/*.raw.txt

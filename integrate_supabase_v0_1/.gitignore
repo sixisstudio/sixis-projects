@@ -1,0 +1,4 @@
+.env
+.shadow_errors.log
+__pycache__/
+*.pyc

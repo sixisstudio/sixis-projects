@@ -1,0 +1,37 @@
+# GitHub Action — Supabase free-tier keep-alive pinger.
+#
+# Free Supabase projects auto-pause after 7 days of inactivity. Tommy's SiXiS
+# usage is episodic, so a SELECT 1 every 6 hours keeps the project warm without
+# upgrading to Pro tier ($25/mo). Pro tier upgrade decision deferred to Day +60
+# post-cutover; let observed usage justify the cost.
+#
+# Setup: create a Supabase service-role connection string secret in this repo:
+#   SIXIS_DATABASE_URL = postgres://postgres:...@aws-1-...pooler.supabase.com:6543/postgres
+#
+# Then commit this file to .github/workflows/sixis_keepalive.yml in the repo
+# that hosts the pinger (any repo that has GitHub Actions enabled — even an
+# otherwise-empty repo works).
+
+name: SiXiS Supabase Keep-Alive
+
+on:
+  schedule:
+    # Every 6 hours (cron is UTC).
+    - cron: "0 */6 * * *"
+  workflow_dispatch:  # manual trigger for testing
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping Supabase
+        env:
+          DSN: ${{ secrets.SIXIS_DATABASE_URL }}
+        run: |
+          if [ -z "$DSN" ]; then
+            echo "SIXIS_DATABASE_URL secret is not set" >&2
+            exit 1
+          fi
+          # psql is preinstalled on ubuntu-latest runners.
+          psql "$DSN" -c "SELECT 1, NOW() AS pinged_at;"
