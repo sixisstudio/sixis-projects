@@ -39,20 +39,26 @@ Specifically prohibited "courtesy" patterns that constitute routing failures:
 
 Each occurrence is logged as `friction` with category `orchestrator_freeze_routing_failure` for Pattern Recognition surfacing.
 
-### FORCED_RULE_LDR_02 — Tier-3 ratification flow with Judge pre-audit gate
+### FORCED_RULE_LDR_02 — Sovereign Ratification Flow with Judge Pre-Audit Gate
+
+> **[AMENDED 2026-05-09 by Tommy K2-stamp on polls 592decc3 + ecb8bc8f.](../../../dashboard_v0_1/sixis_dashboard.db)** Original v0.1 form of this rule (which delegated routine Tier-3 ratifications to the Judge+council loop without Tommy K2-stamp) was found to contradict K2 inalienability under the "no inference from absence of objection" clause. Wholesale replacement below; substrate is canonical (see `rules` table for FORCED_RULE_LDR_02 description).
 
 For Tier-3 decisions:
 
 1. Council deliberates (R1 + R2 per amendment 926869fb).
 2. Council convergence → **Judge audits the convergence FIRST**.
-3. **If Judge returns null verdict (no flags):** the convergence is ratified by the Judge+council loop. Tommy is informed but does NOT need to K2-stamp routine clean Tier-3 ratifications.
-4. **If Judge flags:** council remediates the flagged items (sub-deliberation, R1+R2).
+3. **If Judge returns null verdict (no flags):** the Judge **recommends ratification to Tommy**. Tommy must provide an explicit K2-stamp; absence of objection or non-response is **NOT** ratification (per K2 inalienability). The Judge+council loop does **not** possess ratification authority.
+4. **If Judge flags:** council remediates the flagged items (sub-deliberation, R1+R2). Affected remediation chain pauses under FORCED_RULE_GJ_07; unaffected work continues.
 5. **After remediation:** back to Judge for re-adjudication.
-6. **If Judge confirms remediation clean:** ratified.
+6. **If Judge confirms remediation clean:** Judge recommends ratification; Tommy K2-stamps.
 7. **If Judge still flags OR council can't reach 2/3 convergence on remediation:** escalate to Tommy for K2 sovereign ratification with full audit context.
 8. **Graceful-retry limit:** maximum 3 cycles of (council remediation → Judge re-adjudication). After 3 cycles without convergence, mandatory escalation to Tommy regardless of Judge verdict.
 
-Tommy K2 attention is reserved for Tier-3 cases where the Judge+council loop cannot reach convergence within 3 cycles. Tommy retains ultimate authority but delegates routine Tier-3 ratifications to the loop.
+For Tier-2 decisions: Tommy K2-stamps **unless** a bounded standing approval exists for that specific procedural class. Standing approvals must be **explicit (named class), bounded (specific scope), revocable, and logged**. Tommy may explicitly K2-stamp scoped delegation rules naming Tier-2 procedural classes (e.g., dashboard publish, routine schema migration).
+
+For Tier-1 decisions: orchestrator proceeds per LDR_01 unless a specific FORCED_RULE requires Judge routing or escalation.
+
+K2 is **inalienable at Tier-3**. Every Tier-3 ratification requires Tommy's explicit K2-stamp. Subordination clause: any language elsewhere in the protocol corpus implying autonomous Judge or council ratification authority is subordinate to this rule and must be corrected when discovered.
 
 ### Layer B threshold enforcement (Option D — BINDING/ADVISORY grammar + threshold_check events)
 

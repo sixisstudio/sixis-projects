@@ -56,7 +56,7 @@
 | Claude | Orchestrator + Product Architect | UI flow design, prompt-template authorship, Cycle coordination, Round-2 cross-check enforcement, friction logging, Layer B drafting |
 | GPT | System Designer + Strategist | Architectural seam decisions (adapters vs. forks), K6 long-term lens, MANDATORY COUNTER-ARGUMENT discipline, build-thin guardrail enforcement |
 | Deepseek | Reviewer + Implementation Check | Hidden-obligation audits, K7 audit-chain integrity, schema-drift detection on the new event types |
-| Tommy | Sole Executor + Sovereign | Tier-3 ratification authority ONLY (per amendment 83614b20). Tier-1 and Tier-2 artifacts are ratified by council convergence under the 2-round-mandatory procedure (amendment 926869fb). Tommy retains: red-line risk acceptance, scope-boundary changes, irreversible Tier-3 escalations, cross-check gatekeeper role, sole-writer convention until phase 2 introduces agent-attributed writes. |
+| Tommy | Sole Executor + Sovereign | **Tier-3 ratification is inalienable** (per K2 + LDR_02 amendment ratified 2026-05-09 on polls 592decc3 + ecb8bc8f). Every Tier-3 decision requires Tommy's explicit K2-stamp; absence of objection is NOT ratification. **Tier-2 ratification** defaults to Tommy K2-stamp; the original "ratified by council convergence under 2-round-mandatory procedure" pattern (amendments 83614b20 + 926869fb) now operates as a **standing approval** under LDR_02 §5 — explicit, scope-bounded to council deliberation outcomes, revocable. **Tier-1** proceeds per LDR_01. Tommy retains: red-line risk acceptance, scope-boundary changes, irreversible Tier-3 escalations, cross-check gatekeeper role, sole-writer convention until phase 2 introduces agent-attributed writes. |
 
 ---
 
