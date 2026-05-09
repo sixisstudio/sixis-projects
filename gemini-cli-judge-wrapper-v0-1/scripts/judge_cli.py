@@ -357,12 +357,19 @@ def build_audit_prompt(corpus: str, op_excerpt: str, query: str) -> str:
 # ----- Gemini CLI invocation -----
 
 def invoke_gemini(prompt: str, session_id: str, timeout: int = 300) -> tuple[str, dict]:
-    """Run gemini -p with read-only approval, structured output, native session id."""
+    """Run gemini with read-only approval, structured output, native session id.
+
+    For prompts above ~64KB, pipe via stdin instead of `-p <prompt>`. The
+    `-p` path silently produces empty output for very large prompts (observed
+    at 518KB during the 2026-05-09 canonical CLI audit — gemini exits 0 with
+    empty stdout). Stdin handling is tested working at 153K input tokens."""
     if not GEMINI_BIN.exists():
         raise FileNotFoundError(f"gemini CLI not found at {GEMINI_BIN}")
-    cmd = [
-        str(GEMINI_BIN),
-        "-p", prompt,
+    use_stdin = len(prompt) > 65536
+    cmd = [str(GEMINI_BIN)]
+    if not use_stdin:
+        cmd += ["-p", prompt]
+    cmd += [
         "--approval-mode", "plan",
         "--session-id", session_id,
         "--output-format", "json",
@@ -371,13 +378,23 @@ def invoke_gemini(prompt: str, session_id: str, timeout: int = 300) -> tuple[str
     env = os.environ.copy()
     env["GOOGLE_GENAI_USE_GCA"] = "true"
     t0 = time.time()
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+    proc = subprocess.run(
+        cmd,
+        input=prompt if use_stdin else None,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+    )
     dur_ms = int((time.time() - t0) * 1000)
+    cmd_for_log = cmd if use_stdin else (cmd[:1] + cmd[1:3] + cmd[4:])
     return proc.stdout, {
         "exit_code": proc.returncode,
         "stderr": proc.stderr,
         "duration_ms": dur_ms,
-        "cmd": cmd[:1] + cmd[1:3] + cmd[4:],  # omit prompt body from log
+        "cmd": cmd_for_log,
+        "input_via": "stdin" if use_stdin else "argv",
+        "prompt_chars": len(prompt),
     }
 
 
