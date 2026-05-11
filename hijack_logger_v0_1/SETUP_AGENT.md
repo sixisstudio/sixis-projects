@@ -1,8 +1,22 @@
 # Setup Agent Playbook
 
-**Read this file in full, then execute the steps below.** You are setting up the Hijack Poker HH Logger Chrome extension on the user's machine. The user has cloned/copied this project to the current working directory and has just opened Claude Code here.
+**Read this file in full, then execute the steps below.** You are setting up the Hijack Poker HH Logger Chrome extension on the user's machine.
 
 This is a fully agentic install: you drive Chrome via MCP, the user only approves dialogs and picks an output folder at the end.
+
+## How you got here
+
+One of:
+- **The user pointed you at a remote URL** (e.g., `https://github.com/<user>/<repo>/blob/main/INSTALL.md`). In that case, you should have already executed `INSTALL.md` Phase 0.5 to clone the repo and `cd` into it. If you haven't, STOP and read `INSTALL.md` first.
+- **The user opened Claude Code inside an already-cloned project folder** and asked you to run the playbook. In that case, you're ready — proceed to Phase 1 below.
+
+Verify you're in the project folder before continuing:
+
+```bash
+ls manifest.json src/background/ws_proxy.js src/content/relay.js
+```
+
+If any of those files are missing, STOP and resolve (clone the repo, fix the working directory, etc.) before proceeding.
 
 ---
 

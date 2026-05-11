@@ -1,0 +1,10 @@
+.DS_Store
+*.swp
+*.swo
+node_modules/
+.env
+.env.local
+*.log
+recon_captures/*
+!recon_captures/.gitkeep
+tests/output/

@@ -53,34 +53,15 @@ Install HM3 on your Windows machine. License separately. https://www.holdemmanag
 
 ---
 
-## Get the project files (~30 sec)
-
-Pick a folder you'll keep stable — the extension must keep living at this path for Chrome to keep loading it.
-
-```bash
-# Mac — replace with a path you like
-mkdir -p ~/Tools
-cd ~/Tools
-git clone <git-url-of-this-project>  hijack_logger
-# Or, if not using git: copy the project folder here from wherever you got it
-```
-
-For Windows, similar — use `git clone` in Git Bash or copy the folder manually to e.g. `C:\Tools\hijack_logger\`.
-
----
-
 ## Run the install (~3 min interactive)
 
-Open a terminal in the project folder:
+You don't need to clone anything yourself. Open a terminal anywhere, run `claude`, then paste **the one-liner Tommy sent you**:
 
-```bash
-cd ~/Tools/hijack_logger    # or wherever you put it
-claude
+```
+Install Hijack Logger from <REPO_URL_GOES_HERE>
 ```
 
-Once inside Claude Code, type **exactly this one sentence**:
-
-> Read SETUP_AGENT.md and run the installation playbook.
+(The actual one-liner string is in the SiXiS dashboard for this project — Tommy will paste it to you directly. The URL points at the repo's `INSTALL.md`, which Claude reads, clones the repo to `~/Tools/<repo-name>`, and chains into `SETUP_AGENT.md` to do the rest.)
 
 That's it. Claude will:
 
