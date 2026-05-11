@@ -58,6 +58,8 @@ export class TableState {
     this.lastSnap = null;           // for diffs
     this.nameMap = new Map();       // GUID → displayName (accumulated)
     this.heroSeat = null;           // resolved once per hand
+    this.heroResolvedDuringPreflop = false; // v0.2.6: spectator detection
+    this.lastActionSig = null;       // v0.2.6: dedupe identical action events
   }
 
   /**
@@ -93,10 +95,20 @@ export class TableState {
     }
 
     // Resolve hero seat — keep trying until non-zero (cards haven't appeared yet)
+    // v0.2.6: only ACCEPT a hero candidate during preflop (before any board cards).
+    // If we first see a seat with cards AFTER the flop, that's a villain reveal at
+    // showdown — we're spectating, not playing. Don't stamp a fake hero.
     if (!this.heroSeat) {
       try {
         const candidate = this.heroSeatResolver(snap, this.nameMap);
-        if (candidate) this.heroSeat = candidate;
+        if (candidate) {
+          const boardCardCount = (snap.board || []).filter(c => c && c !== 'facedown').length;
+          if (boardCardCount === 0) {
+            this.heroSeat = candidate;
+            this.heroResolvedDuringPreflop = true;
+          }
+          // else: spectator — leave heroSeat null, no "Dealt to" line will be emitted
+        }
       } catch (e) { /* swallow */ }
     }
 
@@ -122,9 +134,24 @@ export class TableState {
     }
 
     // Detect street transition by board-card delta (fallback if no GAME_MSG_DEAL_X)
-    const newStreet = detectStreetTransition(snap, prev);
-    if (newStreet && this.currentHand && this.currentHand.streets[newStreet] === undefined) {
-      this._beginStreet(newStreet, snap);
+    // v0.2.6: when the board jumps multiple streets at once (e.g., all-in →
+    // dealer runs out 5 cards in one snap), open EACH skipped street so the
+    // writer doesn't emit a malformed "RIVER [] [] [Qs]" with empty flop/turn.
+    if (this.currentHand) {
+      const realCount = (b) => (b || []).filter(c => c && c !== 'facedown').length;
+      const prevCount = prev ? realCount(prev.board) : 0;
+      const currCount = realCount(snap.board);
+      if (currCount > prevCount) {
+        if (prevCount < 3 && currCount >= 3 && this.currentHand.streets.flop === undefined) {
+          this._beginStreet('flop', snap);
+        }
+        if (prevCount < 4 && currCount >= 4 && this.currentHand.streets.turn === undefined) {
+          this._beginStreet('turn', snap);
+        }
+        if (prevCount < 5 && currCount >= 5 && this.currentHand.streets.river === undefined) {
+          this._beginStreet('river', snap);
+        }
+      }
     }
 
     // Detect showdown via winner field appearing
@@ -232,13 +259,22 @@ export class TableState {
       case 'street':
         // Will be handled in _beginStreet
         break;
-      case 'action':
+      case 'action': {
         if (!hand.streets[street]) hand.streets[street] = [];
+        // v0.2.6: dedupe identical consecutive action events. When two snapshots
+        // share the same (lastplayer, languageKey, lastbet) but differ in other
+        // fields (e.g., stack updates trickle in a frame later), deriveActionEvent
+        // emits the same action twice. PT4 sees "Player X: calls $1.00 / Player X:
+        // calls $0.00" as an out-of-sequence violation. Drop the dup.
+        const sig = `${street}|${ev.seat}|${ev.action}|${ev.amount || 0}`;
+        if (sig === this.lastActionSig) break;
+        this.lastActionSig = sig;
         hand.streets[street].push({
           kind: 'action', action: ev.action, seat: ev.seat,
           amount: ev.amount || 0, sitout: ev.sitout || false,
         });
         break;
+      }
       case 'showdown':
         // _enterShowdown handles transition
         break;
@@ -313,6 +349,8 @@ export class TableState {
     }
     this.currentHand = null;
     this.heroSeat = 0;
+    this.heroResolvedDuringPreflop = false;
+    this.lastActionSig = null;
     this.state = STATE.IDLE;
   }
 

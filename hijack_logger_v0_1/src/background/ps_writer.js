@@ -96,19 +96,33 @@ export function renderHand(hand) {
     lines.push(`Dealt to ${heroName} [${psCards.join(' ')}]`);
   }
 
+  // v0.2.7: pre-compute survival info so renderStreetActions can synthesize
+  // missing calls/checks for players whose actions were dropped by the relay.
+  // Without this, PT4 rejects whole streets where the relay missed an
+  // intermediate call ("Invalid pot size").
+  const aliveSets = {
+    preflop: computeAlivePastStreet(hand, 'preflop'),
+    flop: computeAlivePastStreet(hand, 'flop'),
+    turn: computeAlivePastStreet(hand, 'turn'),
+    river: computeAlivePastStreet(hand, 'river'),
+  };
+
   // ─── Preflop actions (non-blind) ────────────────────────────────
-  const preflopResult = renderStreetActions(lines, hand, 'preflop');
+  const preflopResult = renderStreetActions(lines, hand, 'preflop', aliveSets.preflop);
   let cumulativeContributed = preflopResult.totalContributed;
-  let lastStreetUncalled = preflopResult;
+  // v0.2.7: track the MOST-RECENT street that had an uncalled aggression,
+  // not just the last street processed. A later street with no aggression
+  // would otherwise overwrite an earlier uncalled-bet into a no-op.
+  let lastStreetUncalled = preflopResult.uncalled > 0 ? preflopResult : null;
 
   // ─── Flop ──────────────────────────────────────────────────────
   let flopResult = null;
   if (hand.board.flop && hand.board.flop.length === 3) {
     const flopCards = hjkArrayToPS(hand.board.flop);
     lines.push(`*** FLOP *** [${flopCards.join(' ')}]`);
-    flopResult = renderStreetActions(lines, hand, 'flop');
+    flopResult = renderStreetActions(lines, hand, 'flop', aliveSets.flop);
     cumulativeContributed += flopResult.totalContributed;
-    lastStreetUncalled = flopResult;
+    if (flopResult.uncalled > 0) lastStreetUncalled = flopResult;
   }
 
   // ─── Turn ──────────────────────────────────────────────────────
@@ -117,9 +131,9 @@ export function renderHand(hand) {
     const turnCard = hjkToPS(hand.board.turn);
     const flopCards = hjkArrayToPS(hand.board.flop);
     lines.push(`*** TURN *** [${flopCards.join(' ')}] [${turnCard}]`);
-    turnResult = renderStreetActions(lines, hand, 'turn');
+    turnResult = renderStreetActions(lines, hand, 'turn', aliveSets.turn);
     cumulativeContributed += turnResult.totalContributed;
-    lastStreetUncalled = turnResult;
+    if (turnResult.uncalled > 0) lastStreetUncalled = turnResult;
   }
 
   // ─── River ─────────────────────────────────────────────────────
@@ -129,9 +143,9 @@ export function renderHand(hand) {
     const flopCards = hjkArrayToPS(hand.board.flop);
     const turnCard = hjkToPS(hand.board.turn);
     lines.push(`*** RIVER *** [${flopCards.join(' ')}] [${turnCard}] [${riverCard}]`);
-    riverResult = renderStreetActions(lines, hand, 'river');
+    riverResult = renderStreetActions(lines, hand, 'river', aliveSets.river);
     cumulativeContributed += riverResult.totalContributed;
-    lastStreetUncalled = riverResult;
+    if (riverResult.uncalled > 0) lastStreetUncalled = riverResult;
   }
 
   // v0.2.5: emit "Uncalled bet" line for the LAST street that had an uncalled
@@ -177,12 +191,21 @@ export function renderHand(hand) {
       lines.push(`${heroName}: shows [${psCards.join(' ')}]`);
     }
     // Pot collections — use computed called-pot, not Hijack's snap.totalPot.
+    // v0.2.6: split the pot in integer cents so the sum matches the reported
+    // pot exactly. Odd chips go to the FIRST winner (PokerStars convention:
+    // first seat clockwise from button gets the odd chip). Prevents the
+    // "Invalid pot size $2.49 vs $2.50" rounding error PT4 throws on 3-way
+    // checkdowns where pot doesn't divide evenly.
     const distributable = hand._computedCalledPot || hand.pot || 0;
-    for (const w of hand.winners) {
+    const shares = splitPotCents(distributable, hand.winners.length);
+    hand._winnerShares = {};
+    for (let i = 0; i < hand.winners.length; i++) {
+      const w = hand.winners[i];
       const seat = hand.seats.find(s => s.seat === w);
       if (!seat) continue;
       const name = resolveName(seat.guid, hand);
-      const winPot = distributable / hand.winners.length;
+      const winPot = shares[i];
+      hand._winnerShares[w] = winPot;
       lines.push(`${name} collected ${hand.currencySign}${winPot.toFixed(2)} from pot`);
     }
   } else if (hand.ended === 'fold-around' && hand._computedCalledPot && hand._computedUncalled) {
@@ -212,11 +235,15 @@ export function renderHand(hand) {
 
   // Per-seat summary
   const distributable = hand._computedCalledPot != null ? hand._computedCalledPot : (hand.pot || 0);
+  const summaryShares = hand._winnerShares || {};
   for (const s of seatList) {
     const name = resolveName(s.guid, hand);
     const position = describePosition(s.seat, hand);
     if (hand.winners.includes(s.seat)) {
-      const winPot = distributable / Math.max(1, hand.winners.length);
+      // v0.2.6: use the same integer-cent share as the SHOW DOWN section
+      const winPot = summaryShares[s.seat] != null
+        ? summaryShares[s.seat]
+        : (distributable / Math.max(1, hand.winners.length));
       const cards = (s.seat === hand.hero.seat && hand.hero.cards.length)
         ? hand.hero.cards
         : (hand.villainReveals[s.seat] || []);
@@ -251,10 +278,12 @@ export function renderHand(hand) {
  *           uncalled, uncalledSeat } so the caller can emit Uncalled-bet lines
  * + a correct Total-pot summary.
  */
-function renderStreetActions(lines, hand, street) {
+function renderStreetActions(lines, hand, street, alivePastStreet) {
   const actions = (hand.streets[street] || []).filter(a => a.kind === 'action');
   let currentHigh = 0;
   const playerCommit = new Map();
+  const actedThisStreet = new Set();      // seats that appear in this street's actions
+  const foldedThisStreet = new Set();     // subset that folded
   if (street === 'preflop') {
     currentHigh = hand.bb || 0;
     if (hand.sbSeat && hand.sb) playerCommit.set(hand.sbSeat, hand.sb);
@@ -275,8 +304,10 @@ function renderStreetActions(lines, hand, street) {
     if (!seat) continue;
     const name = resolveName(seat.guid, hand);
     const prevCommit = playerCommit.get(a.seat) || 0;
+    actedThisStreet.add(a.seat);
     switch (a.action) {
       case 'fold':
+        foldedThisStreet.add(a.seat);
         lines.push(`${name}: folds${a.sitout ? ' (sit out)' : ''}`);
         break;
       case 'check':
@@ -284,6 +315,14 @@ function renderStreetActions(lines, hand, street) {
         break;
       case 'call': {
         const delta = Math.max(0, currentHigh - prevCommit);
+        // v0.2.7: skip $0 calls entirely on post-preflop streets. They're
+        // frame-echo artifacts: Hijack fires GAME_PLAYER_CALLS for a seat
+        // that already matched the high bet (often the bettor themselves
+        // right after their own bet). The seat is already in actedThisStreet
+        // from their real action; leave that in place. Don't emit anything.
+        if (delta === 0 && street !== 'preflop') {
+          break;
+        }
         lines.push(`${name}: calls ${fmt(delta)}`);
         playerCommit.set(a.seat, currentHigh);
         if (lastAggressor && a.seat !== lastAggressor) callersAfterAggression++;
@@ -330,6 +369,39 @@ function renderStreetActions(lines, hand, street) {
     }
   }
 
+  // v0.2.7: synthesize missing actions for players who DEMONSTRABLY survived
+  // this street (have an action on a later street, or appeared at showdown)
+  // but had no action recorded on this street. This recovers from relay
+  // frame drops where intermediate calls were lost.
+  // For each survivor not seen this street:
+  //   - if currentHigh > their prevCommit → synthesize "calls $delta"
+  //   - else → synthesize "checks"
+  // Append at end-of-street so PT4 reads it as the closing action.
+  // Skip synthesis if only one (or zero) players survive — hand is effectively
+  // over and the lone survivor doesn't need to "check" their own win.
+  if (alivePastStreet && alivePastStreet.size > 1) {
+    for (const survivorSeat of alivePastStreet) {
+      if (actedThisStreet.has(survivorSeat)) continue;
+      // Skip blind-only acks (their blind line already counts as "action")
+      // but only on preflop. Still synthesize their explicit call/check if
+      // currentHigh advanced.
+      const seat = hand.seats.find(s => s.seat === survivorSeat);
+      if (!seat) continue;
+      const name = resolveName(seat.guid, hand);
+      const prevCommit = playerCommit.get(survivorSeat) || 0;
+      if (currentHigh > prevCommit) {
+        const delta = currentHigh - prevCommit;
+        lines.push(`${name}: calls ${fmt(delta)}`);
+        playerCommit.set(survivorSeat, currentHigh);
+        if (lastAggressor && survivorSeat !== lastAggressor) callersAfterAggression++;
+      } else if (street !== 'preflop' || !(survivorSeat === hand.sbSeat || survivorSeat === hand.bbSeat)) {
+        // On preflop, the BB checking their option is normal; don't emit if
+        // they were already at currentHigh as the blind.
+        lines.push(`${name}: checks`);
+      }
+    }
+  }
+
   // Compute uncalled bet (if any). For PokerStars convention: when only one
   // player is at the highest commit level on a street, the difference between
   // their commit and the next-highest is "uncalled" and returned.
@@ -345,6 +417,19 @@ function renderStreetActions(lines, hand, street) {
     if (aggressorCommit > secondHigh) {
       uncalled = aggressorCommit - secondHigh;
       uncalledSeat = lastAggressor;
+    }
+  } else if (street === 'preflop' && !lastAggressor && hand.bbSeat && hand.bb) {
+    // v0.2.8: fold-around-to-BB. No one raised; BB's overpost gets returned.
+    // The "aggressor" is implicitly the BB.
+    const bbCommit = playerCommit.get(hand.bbSeat) || 0;
+    let secondHigh = 0;
+    for (const [seat, commit] of playerCommit) {
+      if (seat === hand.bbSeat) continue;
+      if (commit > secondHigh) secondHigh = commit;
+    }
+    if (bbCommit > secondHigh) {
+      uncalled = bbCommit - secondHigh;
+      uncalledSeat = hand.bbSeat;
     }
   }
 
@@ -391,6 +476,48 @@ function describeFoldStreet(hand, seat) {
 }
 
 function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+/**
+ * v0.2.7: Compute the set of seats that demonstrably survived past a given
+ * street — i.e., have an action recorded on a later street, OR appear in
+ * the showdown (winners, villain reveals, or hero with hole cards). Used
+ * to synthesize missing actions when the relay drops intermediate calls.
+ */
+function computeAlivePastStreet(hand, street) {
+  const order = ['preflop', 'flop', 'turn', 'river'];
+  const idx = order.indexOf(street);
+  const later = idx >= 0 ? order.slice(idx + 1) : [];
+  const alive = new Set();
+  for (const ls of later) {
+    for (const a of (hand.streets[ls] || [])) {
+      if (a.kind === 'action') alive.add(a.seat);
+    }
+  }
+  for (const w of (hand.winners || [])) alive.add(w);
+  for (const k of Object.keys(hand.villainReveals || {})) alive.add(parseInt(k, 10));
+  if (hand.hero && hand.hero.seat && hand.hero.cards && hand.hero.cards.length) {
+    alive.add(hand.hero.seat);
+  }
+  return alive;
+}
+
+/**
+ * Split a pot of `amount` (in dollars, 2-decimal precision) among `nWinners`
+ * such that the integer-cent sum equals the input exactly. Odd cents go to
+ * the earliest winner. Returns an array of dollar amounts.
+ */
+function splitPotCents(amount, nWinners) {
+  if (nWinners <= 0) return [];
+  const totalCents = Math.round(amount * 100);
+  const base = Math.floor(totalCents / nWinners);
+  const remainder = totalCents - base * nWinners;
+  const out = [];
+  for (let i = 0; i < nWinners; i++) {
+    const cents = base + (i < remainder ? 1 : 0);
+    out.push(cents / 100);
+  }
+  return out;
+}
 
 function renderHandRank(cardStr) {
   // Hand-rank derivation is complex (would require a poker eval library).
