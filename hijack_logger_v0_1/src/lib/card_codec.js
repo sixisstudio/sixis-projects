@@ -11,6 +11,27 @@
 export const SENTINEL_EMPTY = '';
 export const SENTINEL_FACEDOWN = 'facedown';
 
+/**
+ * Test whether a Hijack-format card string represents a REAL face-up card
+ * (vs empty slot, facedown, or any other sentinel).
+ *
+ * Accepts both 2-char form ("KC", "9H") AND 3-char "10X" form (Hijack uses
+ * "10C" for Ten of Clubs, etc.). The v0.1.0-v0.2.1 parser used a naive
+ * `c.length === 2` check that filtered out Tens, causing them to disappear
+ * from hero hands and showdown reveals — observed in PT4 as "N card Omaha
+ * is not supported" errors when a seat had a Ten in their hole cards.
+ *
+ * @param {string} c
+ * @returns {boolean}
+ */
+export function isRealCard(c) {
+  if (!c || typeof c !== 'string') return false;
+  if (c === SENTINEL_FACEDOWN || c === SENTINEL_EMPTY) return false;
+  if (c.length === 2) return true;            // "KC", "9H", "AD", "2S", etc.
+  if (c.length === 3 && c.startsWith('10')) return true;  // "10C", "10S", "10D", "10H"
+  return false;
+}
+
 const RANK_VALID = new Set(['2','3','4','5','6','7','8','9','T','J','Q','K','A']);
 const SUIT_HIJACK = new Set(['H', 'S', 'D', 'C']);
 const SUIT_TO_PS = { H: 'h', S: 's', D: 'd', C: 'c' };

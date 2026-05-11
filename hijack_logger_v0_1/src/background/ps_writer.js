@@ -165,10 +165,26 @@ export function renderHand(hand) {
 
 function renderStreetActions(lines, hand, street) {
   const actions = (hand.streets[street] || []).filter(a => a.kind === 'action');
+  // v0.2.2: track per-street betting state for proper PokerStars-format
+  // "calls $delta" and "raises $increment to $total" output. PT4/HM3 sum
+  // the per-action amounts to compute pot; without the right deltas, every
+  // hand reports "Invalid pot size" and import fails.
+  let currentHigh = 0;
+  const playerCommit = new Map();  // seat -> amount committed to this round
+  if (street === 'preflop') {
+    // BB-level is the current high; SB and BB have already committed their blinds
+    currentHigh = hand.bb || 0;
+    if (hand.sbSeat && hand.sb) playerCommit.set(hand.sbSeat, hand.sb);
+    if (hand.bbSeat && hand.bb) playerCommit.set(hand.bbSeat, hand.bb);
+  }
+  const cs = hand.currencySign;
+  const fmt = (n) => `${cs}${(n || 0).toFixed(2)}`;
+
   for (const a of actions) {
     const seat = hand.seats.find(s => s.seat === a.seat);
     if (!seat) continue;
     const name = resolveName(seat.guid, hand);
+    const prevCommit = playerCommit.get(a.seat) || 0;
     switch (a.action) {
       case 'fold':
         lines.push(`${name}: folds${a.sitout ? ' (sit out)' : ''}`);
@@ -176,20 +192,47 @@ function renderStreetActions(lines, hand, street) {
       case 'check':
         lines.push(`${name}: checks`);
         break;
-      case 'call':
-        lines.push(`${name}: calls ${hand.currencySign}${(a.amount || 0).toFixed(2)}`);
+      case 'call': {
+        // PokerStars: "calls $X" where X is the delta to match currentHigh
+        const delta = Math.max(0, currentHigh - prevCommit);
+        lines.push(`${name}: calls ${fmt(delta)}`);
+        playerCommit.set(a.seat, currentHigh);
         break;
-      case 'bet':
-        lines.push(`${name}: bets ${hand.currencySign}${(a.amount || 0).toFixed(2)}`);
+      }
+      case 'bet': {
+        // First non-blind bet of a postflop street. a.amount is the bet size.
+        lines.push(`${name}: bets ${fmt(a.amount)}`);
+        currentHigh = a.amount || 0;
+        playerCommit.set(a.seat, a.amount || 0);
         break;
-      case 'raise':
-        // PokerStars format: "raises $X to $Y"
-        // We only know the final bet amount; compute "raise by" delta if available
-        lines.push(`${name}: raises to ${hand.currencySign}${(a.amount || 0).toFixed(2)}`);
+      }
+      case 'raise': {
+        // PokerStars: "raises $Y to $X" where Y = increment over currentHigh,
+        // X = new total bet level. a.amount is X (the "to" amount from Hijack's lastbet).
+        const newTotal = a.amount || 0;
+        const increment = Math.max(0, newTotal - currentHigh);
+        lines.push(`${name}: raises ${fmt(increment)} to ${fmt(newTotal)}`);
+        currentHigh = newTotal;
+        playerCommit.set(a.seat, newTotal);
         break;
-      case 'allin':
-        lines.push(`${name}: bets ${hand.currencySign}${(a.amount || 0).toFixed(2)} and is all-in`);
+      }
+      case 'allin': {
+        // All-in could be a bet, a call, or a raise depending on prior action.
+        // Use the conventional PokerStars-style "$X and is all-in" suffix.
+        const amt = a.amount || 0;
+        if (currentHigh === 0) {
+          lines.push(`${name}: bets ${fmt(amt)} and is all-in`);
+        } else if (amt > currentHigh) {
+          const increment = amt - currentHigh;
+          lines.push(`${name}: raises ${fmt(increment)} to ${fmt(amt)} and is all-in`);
+        } else {
+          const delta = Math.max(0, amt - prevCommit);
+          lines.push(`${name}: calls ${fmt(delta)} and is all-in`);
+        }
+        currentHigh = Math.max(currentHigh, amt);
+        playerCommit.set(a.seat, Math.max(playerCommit.get(a.seat) || 0, amt));
         break;
+      }
     }
   }
 }

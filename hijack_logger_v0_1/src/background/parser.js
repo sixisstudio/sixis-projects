@@ -263,19 +263,18 @@ export function detectStreetTransition(snap, prevSnap) {
   return null;
 }
 
+import { isRealCard } from '../lib/card_codec.js';
+
 /**
  * Detect hero hole-card reveal — when hero's p{N}card slots transition from
  * empty/facedown to real card values. Returns the hero seat + cards, or null.
- * @param {object} snap
- * @param {object} prevSnap
- * @param {number} heroSeat — known hero seat (from GUID match elsewhere)
+ * v0.2.2: uses shared isRealCard which accepts "10C"-form Tens.
  */
 export function detectHeroCardReveal(snap, prevSnap, heroSeat) {
   if (!heroSeat) return null;
   const seat = snap.seats.find(s => s.seat === heroSeat);
   if (!seat) return null;
   const prevSeat = prevSnap ? prevSnap.seats.find(s => s.seat === heroSeat) : null;
-  const isRealCard = c => c && c.length === 2 && c !== 'facedown';
   const heroReal = seat.cards.filter(isRealCard);
   const prevReal = prevSeat ? prevSeat.cards.filter(isRealCard) : [];
   if (heroReal.length > prevReal.length) {
@@ -287,12 +286,13 @@ export function detectHeroCardReveal(snap, prevSnap, heroSeat) {
 /**
  * Detect villain hole-card reveal at showdown.
  * Returns map { seatId: [cards] } of reveals not seen in prevSnap.
+ * v0.2.2: uses shared isRealCard. Also returns the FULL current card set
+ * (not just the delta) so consumers always have the latest count.
  */
 export function detectShowdownReveals(snap, prevSnap, heroSeat) {
   const reveals = {};
-  const isRealCard = c => c && c.length === 2 && c !== 'facedown';
   for (const seat of snap.seats) {
-    if (seat.seat === heroSeat) continue;  // hero handled separately
+    if (seat.seat === heroSeat) continue;
     const real = seat.cards.filter(isRealCard);
     if (real.length === 0) continue;
     const prevSeat = prevSnap ? prevSnap.seats.find(s => s.seat === seat.seat) : null;

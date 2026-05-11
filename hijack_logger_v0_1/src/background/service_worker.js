@@ -84,9 +84,12 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
  * the recipient's slots).
  * Returns 0 if no seat has real cards yet (hand not dealt to anyone, or
  * we're a spectator).
+ *
+ * v0.2.2: uses shared isRealCard from lib/card_codec.js which knows about
+ * "10C"-form Tens.
  */
+import { isRealCard } from '../lib/card_codec.js';
 function heroSeatResolver(snap) {
-  const isRealCard = c => c && c.length === 2 && c !== 'facedown';
   for (const s of snap.seats) {
     if (s.cards.some(isRealCard)) return s.seat;
   }
@@ -348,4 +351,4 @@ function handlePopupMessage(msg, sender, sendResponse) {
   }
 })();
 
-console.log('[hjk] service worker booted v0.2.1');
+console.log('[hjk] service worker booted v0.2.2');

@@ -173,7 +173,9 @@ describe('renderHand — produces non-empty HH text', () => {
   assert(text.includes('Dealt to call2bluff [Kc Jc 4s 2h]'), 'hero deal line with PS-formatted cards');
   assert(text.includes('folds'), 'a fold present');
   assert(text.includes('calls $0.05'), 'a call present');
-  assert(text.includes('raises to $0.20'), 'raise present');
+  // v0.2.2: PokerStars format is "raises $Y to $X" — Y=increment, X=new total
+  assert(text.includes('raises $0.15 to $0.20'), 'raise has increment + new-total in PokerStars format');
+  assert(text.includes('calls $0.15'), 'call amount is delta (not running total) per PokerStars format');
   assert(text.includes('*** SUMMARY ***'), 'summary marker');
   assert(text.includes('Total pot $0.45'), 'pot total');
 
