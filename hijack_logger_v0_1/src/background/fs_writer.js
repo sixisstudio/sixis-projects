@@ -7,66 +7,35 @@
 // Per council R2: File System Access API as v1, native-messaging as v2
 // escape hatch if Gate 5 durability fails.
 
-const IDB_NAME = 'hjk_logger_v1';
-const IDB_STORE = 'config';
-const IDB_HANDLE_KEY = 'outputDirHandle';
-const IDB_DIRNAME_KEY = 'outputDirName';
-
-// ─── IndexedDB helpers ────────────────────────────────────────────
-
-function openIDB() {
-  return new Promise((res, rej) => {
-    const req = indexedDB.open(IDB_NAME, 1);
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore(IDB_STORE);
-    };
-    req.onsuccess = () => res(req.result);
-    req.onerror = () => rej(req.error);
-  });
-}
-
-async function idbGet(key) {
-  const db = await openIDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(IDB_STORE, 'readonly');
-    const g = tx.objectStore(IDB_STORE).get(key);
-    g.onsuccess = () => res(g.result);
-    g.onerror = () => rej(g.error);
-  });
-}
-
-async function idbSet(key, value) {
-  const db = await openIDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).put(value, key);
-    tx.oncomplete = () => res();
-    tx.onerror = () => rej(tx.error);
-  });
-}
+// v0.1.4: IDB helpers moved to ../lib/idb.js, shared with popup.
+import { idbGet, idbSet, IDB_HANDLE_KEY } from '../lib/idb.js';
 
 // ─── Public API ───────────────────────────────────────────────────
 
 /**
- * Persist a directory handle (called from popup after the user picks).
- * @param {FileSystemDirectoryHandle} handle
- */
-export async function setOutputDirHandle(handle) {
-  await idbSet(IDB_HANDLE_KEY, handle);
-  await idbSet(IDB_DIRNAME_KEY, handle.name);
-}
-
-/**
  * Get the persisted handle, request permission if needed.
  * Returns null if no handle stored or permission denied.
+ *
+ * The handle MUST have been written to IDB from a context where its methods
+ * are intact (popup.js, NOT via chrome.runtime.sendMessage). IDB's structured-
+ * clone preserves the handle; chrome.runtime.sendMessage's JSON-ish transport
+ * does not.
+ *
  * @returns {Promise<FileSystemDirectoryHandle | null>}
  */
 export async function getOutputDirHandle() {
   const handle = await idbGet(IDB_HANDLE_KEY);
   if (!handle) return null;
+  if (typeof handle.queryPermission !== 'function') {
+    // v0.1.3 and earlier wrote a stripped husk via chrome.runtime.sendMessage.
+    // If we see one, return null — popup will need to re-pick.
+    console.warn('[hjk] stale stripped handle in IDB (v0.1.3 bug); please re-pick output folder');
+    return null;
+  }
   let perm = await handle.queryPermission({ mode: 'readwrite' });
   if (perm === 'prompt') {
-    perm = await handle.requestPermission({ mode: 'readwrite' });
+    try { perm = await handle.requestPermission({ mode: 'readwrite' }); }
+    catch (e) { return null; }
   }
   if (perm !== 'granted') return null;
   return handle;

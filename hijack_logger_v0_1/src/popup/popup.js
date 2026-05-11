@@ -47,15 +47,24 @@ async function render() {
 }
 
 // ─── Directory picker ──────────────────────────────────────────────
+// v0.1.4: write the FSA handle DIRECTLY to IDB from this popup context.
+// Popup and service worker share the same extension origin, so they share
+// the same IDB databases. Going via chrome.runtime.sendMessage strips the
+// handle's methods, leaving a useless husk — that was the v0.1.3 bug.
+import { idbSet, IDB_HANDLE_KEY, IDB_DIRNAME_KEY } from '../lib/idb.js';
+
 document.getElementById('pickDir').addEventListener('click', async () => {
   // FSA must be invoked from a user gesture; popup click counts.
   try {
     const handle = await window.showDirectoryPicker({ mode: 'readwrite', startIn: 'downloads' });
-    // Store handle via service worker — popup can't directly access IDB used by SW
-    // (different origin); SW will persist via chrome.storage + IDB inside SW context.
-    // For now: send handle via message. Note: handles can be transferred via
-    // structured clone in Chrome.
-    chrome.runtime.sendMessage({ kind: 'set_output_dir', handle, name: handle.name });
+    // Write the live handle to IDB. The handle is structured-cloneable
+    // when stored via IDB (keeps queryPermission/getFileHandle methods).
+    await idbSet(IDB_HANDLE_KEY, handle);
+    await idbSet(IDB_DIRNAME_KEY, handle.name);
+    // Also mirror to chrome.storage.local for the popup's own UI restore.
+    chrome.storage.local.set({ outputDirName: handle.name }).catch(() => {});
+    // Notify SW so it picks up the change (no handle in the message — SW reads from IDB).
+    chrome.runtime.sendMessage({ kind: 'output_dir_changed', name: handle.name });
     document.getElementById('outDir').textContent = handle.name;
   } catch (e) {
     if (e.name !== 'AbortError') {

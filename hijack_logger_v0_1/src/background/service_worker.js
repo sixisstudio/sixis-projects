@@ -6,7 +6,7 @@
 import { decodeData, parseGameWSFrame } from './parser.js';
 import { TableState } from './hand_state.js';
 import { renderHand } from './ps_writer.js';
-import { SessionWriter, setOutputDirHandle } from './fs_writer.js';
+import { SessionWriter } from './fs_writer.js';
 import { RawSidecarWriter } from './raw_sidecar.js';
 import { DriftDetector, runHandHeuristics } from './schema_fingerprint.js';
 
@@ -270,16 +270,21 @@ function handlePopupMessage(msg, sender, sendResponse) {
       return true;  // async-safe (we already responded synchronously)
     }
 
+    case 'output_dir_changed': {
+      // v0.1.4: popup writes the handle directly to IDB (because chrome.runtime
+      // .sendMessage strips FSA-handle methods). This message just notifies the
+      // SW that the change happened so it can refresh in-memory state.
+      console.log('[hjk] output directory changed to', msg.name);
+      sendResponse({ ok: true });
+      return true;
+    }
     case 'set_output_dir': {
-      // popup picked a directory and is forwarding the handle
-      if (msg.handle) {
-        setOutputDirHandle(msg.handle).then(() => {
-          chrome.storage.local.set({ outputDirName: msg.name }).catch(() => {});
-          sendResponse({ ok: true });
-        }).catch(e => sendResponse({ ok: false, error: e.message }));
-        return true;
-      }
-      sendResponse({ ok: false, error: 'no handle' });
+      // v0.1.3-and-earlier compat: ignore handle in message (it's a stripped
+      // husk anyway). Tell user to re-pick if they hit this path.
+      sendResponse({
+        ok: false,
+        error: 'v0.1.3 set_output_dir is deprecated; popup writes to IDB directly in v0.1.4+. Re-pick the folder in the popup.',
+      });
       return true;
     }
 
