@@ -9,6 +9,7 @@
 import { extractSnapshot, snapshotKey, deriveActionEvent, detectHeroCardReveal } from '../src/background/parser.js';
 import { TableState } from '../src/background/hand_state.js';
 import { renderHand } from '../src/background/ps_writer.js';
+import { hjkToPS, hjkArrayToPS } from '../src/lib/card_codec.js';
 import { hand168103Snapshots, hand168104Snapshots } from './fixtures/hand_168103.js';
 
 let pass = 0;
@@ -30,6 +31,27 @@ function describe(name, fn) {
 }
 
 // ─── Tests ────────────────────────────────────────────────────────
+
+describe('card codec — Hijack uses "10" for Ten, others single-char', () => {
+  assert(hjkToPS('KC') === 'Kc', 'KC -> Kc');
+  assert(hjkToPS('AH') === 'Ah', 'AH -> Ah');
+  assert(hjkToPS('2D') === '2d', '2D -> 2d');
+  assert(hjkToPS('10C') === 'Tc', '10C -> Tc (the bug from prod hand 266754)');
+  assert(hjkToPS('10S') === 'Ts', '10S -> Ts');
+  assert(hjkToPS('10H') === 'Th', '10H -> Th');
+  assert(hjkToPS('10D') === 'Td', '10D -> Td');
+  assert(hjkToPS('TC') === 'Tc', 'TC also works (PS-form input)');
+  assert(hjkToPS('') === '', 'empty passthrough');
+  assert(hjkToPS('facedown') === 'facedown', 'facedown passthrough');
+  let threw = false;
+  try { hjkToPS('ZZ'); } catch (e) { threw = true; }
+  assert(threw, 'invalid rank throws');
+  threw = false;
+  try { hjkToPS('10X'); } catch (e) { threw = true; }
+  assert(threw, 'invalid suit on "10" throws');
+  assert(hjkArrayToPS(['KC','10S','AH']).join(' ') === 'Kc Ts Ah', 'array normalization');
+  assert(hjkArrayToPS(['KC','','facedown','10S']).join(' ') === 'Kc Ts', 'array skips empty/facedown');
+});
 
 describe('snapshotKey / extractSnapshot', () => {
   const s0 = hand168103Snapshots[0].game;

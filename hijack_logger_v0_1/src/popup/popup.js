@@ -84,7 +84,16 @@ document.getElementById('pickDir').addEventListener('click', async () => {
     console.log('[hjk] popup readback after idbSet: typeof queryPermission =', typeof (verify && verify.queryPermission), ', name =', verify && verify.name);
     // Also mirror to chrome.storage.local for the popup's own UI restore.
     chrome.storage.local.set({ outputDirName: handle.name }).catch(() => {});
-    // Notify SW so it picks up the change (no handle in the message — SW reads from IDB).
+    // v0.2.0: also send the LIVE handle to the offscreen document for caching.
+    // Offscreen will fall back to reading IDB if the message-passed handle
+    // arrives stripped.
+    chrome.runtime.sendMessage(
+      { target: 'offscreen', kind: 'offscreen_set_handle', handle, name: handle.name },
+      (resp) => {
+        console.log('[hjk] popup → offscreen set_handle resp:', resp || chrome.runtime.lastError);
+      }
+    );
+    // Notify SW so it can update its in-memory state.
     chrome.runtime.sendMessage({ kind: 'output_dir_changed', name: handle.name });
     document.getElementById('outDir').textContent = handle.name;
     // Hide any "you must re-pick" banner

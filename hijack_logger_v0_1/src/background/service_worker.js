@@ -318,4 +318,23 @@ function handlePopupMessage(msg, sender, sendResponse) {
   return false;
 }
 
-console.log('[hjk] service worker booted v0.1.7');
+// v0.2.0: ensure the offscreen document is alive so it can receive writes.
+(async () => {
+  try {
+    const existing = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+    if (!existing || existing.length === 0) {
+      await chrome.offscreen.createDocument({
+        url: 'src/offscreen/offscreen.html',
+        reasons: ['BLOBS'],
+        justification: 'Persist FileSystemDirectoryHandle for hand-history writes across SW evictions.',
+      });
+      console.log('[hjk] offscreen document created on SW boot');
+    } else {
+      console.log('[hjk] offscreen document already exists');
+    }
+  } catch (e) {
+    console.warn('[hjk] offscreen boot failed:', e.message);
+  }
+})();
+
+console.log('[hjk] service worker booted v0.2.0');

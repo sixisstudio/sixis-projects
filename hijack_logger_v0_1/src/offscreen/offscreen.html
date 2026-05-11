@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+  Offscreen document for Hijack Logger.
+  Purpose: hold a persistent DOM context where FSA directory handles can keep
+  their 'granted' permission state across service-worker evictions. MV3
+  service workers can't reliably persist FSA permissions; offscreen docs can.
+
+  Loaded on demand by service_worker.js via chrome.offscreen.createDocument
+  with reasons:['BLOBS'] (file blob writes count as the BLOBS justification).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hijack Logger Offscreen</title>
+</head>
+<body>
+<script src="offscreen.js" type="module"></script>
+</body>
+</html>

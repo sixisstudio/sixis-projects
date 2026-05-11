@@ -7,10 +7,58 @@
 // Per council R2: File System Access API as v1, native-messaging as v2
 // escape hatch if Gate 5 durability fails.
 
-// v0.1.4: IDB helpers moved to ../lib/idb.js, shared with popup.
+// v0.2.0: FSA writes delegated to an offscreen document. The SW can't hold
+// FSA permissions reliably (no DOM/window, gets evicted after ~30s idle).
+// Offscreen docs run in a real DOM context and persist across SW evictions,
+// so handle.queryPermission()='granted' propagates correctly there.
+//
+// fs_writer.js still owns the file-name composition + session bookkeeping;
+// it just forwards the actual write to offscreen via chrome.runtime.sendMessage.
+
 import { idbGet, idbSet, idbDelete, IDB_HANDLE_KEY, IDB_DIRNAME_KEY } from '../lib/idb.js';
 
-let huskWarned = false;  // log the stale-husk warning at most once per SW boot
+const OFFSCREEN_PATH = 'src/offscreen/offscreen.html';
+
+let huskWarned = false;
+let offscreenReadyPromise = null;
+
+async function ensureOffscreenReady() {
+  if (offscreenReadyPromise) return offscreenReadyPromise;
+  offscreenReadyPromise = (async () => {
+    try {
+      const existing = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT'],
+      });
+      if (existing && existing.length > 0) return;
+      await chrome.offscreen.createDocument({
+        url: OFFSCREEN_PATH,
+        reasons: ['BLOBS'],
+        justification: 'Persist FileSystemDirectoryHandle for hand-history writes across SW evictions.',
+      });
+      console.log('[hjk] offscreen document created');
+    } catch (e) {
+      console.warn('[hjk] offscreen createDocument failed:', e.message);
+      throw e;
+    }
+  })();
+  return offscreenReadyPromise;
+}
+
+async function offscreenWrite(filename, text) {
+  await ensureOffscreenReady();
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(
+      { target: 'offscreen', kind: 'offscreen_write', filename, text },
+      (resp) => {
+        if (chrome.runtime.lastError) {
+          resolve({ ok: false, error: chrome.runtime.lastError.message });
+        } else {
+          resolve(resp || { ok: false, error: 'no response from offscreen' });
+        }
+      }
+    );
+  });
+}
 
 // ─── Public API ───────────────────────────────────────────────────
 
@@ -98,20 +146,16 @@ export function composeFilename(gameID, sessionStartedAt, sessionSeq = 1) {
 }
 
 /**
- * Append text to a session file. Uses live-append via FSA's createWritable
- * with keepExistingData + seek-to-end.
+ * Append text to a session file. v0.2.0: delegates to offscreen document
+ * which holds the FSA handle in a DOM context where permissions persist.
  * @param {string} filename
  * @param {string} text
  */
 export async function appendToSessionFile(filename, text) {
-  const dir = await getOutputDirHandle();
-  if (!dir) throw new Error('No output directory configured');
-  const fileHandle = await dir.getFileHandle(filename, { create: true });
-  const file = await fileHandle.getFile();
-  const writable = await fileHandle.createWritable({ keepExistingData: true });
-  await writable.seek(file.size);
-  await writable.write(text);
-  await writable.close();
+  const result = await offscreenWrite(filename, text);
+  if (!result.ok) {
+    throw new Error(result.error || 'offscreen write failed');
+  }
 }
 
 /**

@@ -17,19 +17,33 @@ const SUIT_TO_PS = { H: 'h', S: 's', D: 'd', C: 'c' };
 
 /**
  * Convert a Hijack-format card string to PokerStars format.
- * @param {string} hjk — Hijack card like "KC", "TS", "AD"
- * @returns {string} PokerStars card like "Kc", "Ts", "Ad", or empty/facedown unchanged
- * @throws if input is malformed (not empty/facedown and not a valid card)
+ *
+ * Hijack uses either 1-char ranks ("KC", "AD", "9H") OR 2-char "10" for Ten
+ * ("10C", "10S"). PokerStars always uses single-char "T" for Ten. We accept
+ * both Hijack forms and always emit single-char rank.
+ *
+ * @param {string} hjk — Hijack card: "KC", "9H", "10S", etc. (or empty/facedown)
+ * @returns {string} PokerStars card: "Kc", "9h", "Ts" — or empty/facedown unchanged
+ * @throws if input is malformed
  */
 export function hjkToPS(hjk) {
   if (hjk === SENTINEL_EMPTY || hjk === SENTINEL_FACEDOWN) return hjk;
-  if (typeof hjk !== 'string' || hjk.length !== 2) {
+  if (typeof hjk !== 'string') {
     throw new Error(`Invalid card format: ${JSON.stringify(hjk)}`);
   }
-  const rank = hjk[0];
-  const suit = hjk[1];
-  if (!RANK_VALID.has(rank)) throw new Error(`Invalid rank: ${rank} in ${hjk}`);
-  if (!SUIT_HIJACK.has(suit)) throw new Error(`Invalid suit: ${suit} in ${hjk}`);
+  let rank, suit;
+  if (hjk.length === 2) {
+    rank = hjk[0];
+    suit = hjk[1];
+  } else if (hjk.length === 3 && hjk.startsWith('10')) {
+    // "10C", "10S", "10D", "10H" — normalize Ten to single-char "T"
+    rank = 'T';
+    suit = hjk[2];
+  } else {
+    throw new Error(`Invalid card format: ${JSON.stringify(hjk)}`);
+  }
+  if (!RANK_VALID.has(rank)) throw new Error(`Invalid rank: ${rank} in ${JSON.stringify(hjk)}`);
+  if (!SUIT_HIJACK.has(suit)) throw new Error(`Invalid suit: ${suit} in ${JSON.stringify(hjk)}`);
   return rank + SUIT_TO_PS[suit];
 }
 
