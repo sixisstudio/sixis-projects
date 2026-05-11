@@ -8,7 +8,9 @@
 // escape hatch if Gate 5 durability fails.
 
 // v0.1.4: IDB helpers moved to ../lib/idb.js, shared with popup.
-import { idbGet, idbSet, IDB_HANDLE_KEY } from '../lib/idb.js';
+import { idbGet, idbSet, idbDelete, IDB_HANDLE_KEY, IDB_DIRNAME_KEY } from '../lib/idb.js';
+
+let huskWarned = false;  // log the stale-husk warning at most once per SW boot
 
 // ─── Public API ───────────────────────────────────────────────────
 
@@ -21,15 +23,26 @@ import { idbGet, idbSet, IDB_HANDLE_KEY } from '../lib/idb.js';
  * clone preserves the handle; chrome.runtime.sendMessage's JSON-ish transport
  * does not.
  *
+ * v0.1.6: if we detect a stripped husk (v0.1.3 carry-over), AUTO-WIPE it from
+ * IDB so the popup's "Output directory" UI immediately reflects 'not set' and
+ * the user knows to re-pick.
+ *
  * @returns {Promise<FileSystemDirectoryHandle | null>}
  */
 export async function getOutputDirHandle() {
   const handle = await idbGet(IDB_HANDLE_KEY);
   if (!handle) return null;
   if (typeof handle.queryPermission !== 'function') {
-    // v0.1.3 and earlier wrote a stripped husk via chrome.runtime.sendMessage.
-    // If we see one, return null — popup will need to re-pick.
-    console.warn('[hjk] stale stripped handle in IDB (v0.1.3 bug); please re-pick output folder');
+    // v0.1.3 stripped husk — wipe it so the user is forced to re-pick.
+    if (!huskWarned) {
+      console.warn('[hjk] stale stripped handle from v0.1.3 detected in IDB; wiping. Re-pick the output folder in the popup.');
+      huskWarned = true;
+    }
+    try {
+      await idbDelete(IDB_HANDLE_KEY);
+      await idbDelete(IDB_DIRNAME_KEY);
+      chrome.storage.local.remove('outputDirName').catch(() => {});
+    } catch (e) { /* swallow */ }
     return null;
   }
   let perm = await handle.queryPermission({ mode: 'readwrite' });

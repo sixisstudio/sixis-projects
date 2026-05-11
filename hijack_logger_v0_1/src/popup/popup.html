@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>Hijack Logger</h1>
-    <span class="version">v0.1.5</span>
+    <span class="version">v0.1.6</span>
   </header>
 
   <section class="output-config">
@@ -19,6 +19,9 @@
       <button id="pickDir">Change</button>
     </div>
     <div class="dir-hint">Open this folder via your OS file manager (Chrome doesn't expose folder paths to extensions for security reasons).</div>
+    <div id="huskWarn" class="banner-warn" style="display:none;">
+      ⚠ You upgraded from v0.1.3 — the old folder handle is unusable. Click <strong>Change</strong> to re-pick (same folder is fine).
+    </div>
   </section>
 
   <section class="sessions">

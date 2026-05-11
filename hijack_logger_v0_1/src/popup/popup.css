@@ -55,6 +55,17 @@ section {
   line-height: 1.4;
 }
 
+.banner-warn {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #fef3c7;
+  color: #92400e;
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 button {
   font-size: 12px;
   padding: 4px 10px;

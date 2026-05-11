@@ -45,3 +45,13 @@ export async function idbSet(key, value) {
     tx.onerror = () => rej(tx.error);
   });
 }
+
+export async function idbDelete(key) {
+  const db = await openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(key);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}

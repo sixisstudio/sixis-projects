@@ -57,15 +57,20 @@ document.getElementById('pickDir').addEventListener('click', async () => {
   // FSA must be invoked from a user gesture; popup click counts.
   try {
     const handle = await window.showDirectoryPicker({ mode: 'readwrite', startIn: 'downloads' });
+    console.log('[hjk] popup picked dir:', handle.name, 'kind:', handle.kind, 'queryPermission:', typeof handle.queryPermission);
     // Write the live handle to IDB. The handle is structured-cloneable
     // when stored via IDB (keeps queryPermission/getFileHandle methods).
     await idbSet(IDB_HANDLE_KEY, handle);
     await idbSet(IDB_DIRNAME_KEY, handle.name);
+    console.log('[hjk] popup wrote handle to IDB');
     // Also mirror to chrome.storage.local for the popup's own UI restore.
     chrome.storage.local.set({ outputDirName: handle.name }).catch(() => {});
     // Notify SW so it picks up the change (no handle in the message — SW reads from IDB).
     chrome.runtime.sendMessage({ kind: 'output_dir_changed', name: handle.name });
     document.getElementById('outDir').textContent = handle.name;
+    // Hide any "you must re-pick" banner
+    const banner = document.getElementById('huskWarn');
+    if (banner) banner.style.display = 'none';
   } catch (e) {
     if (e.name !== 'AbortError') {
       console.error('directory pick failed:', e);
@@ -96,3 +101,16 @@ chrome.storage.local.get(['rawSidecar', 'schemaWarn', 'outputDirName']).then((r)
   if (r.schemaWarn !== undefined) document.getElementById('schemaWarn').checked = r.schemaWarn;
   if (r.outputDirName) document.getElementById('outDir').textContent = r.outputDirName;
 });
+
+// Husk detection on popup open — if IDB has a stripped husk, show banner
+import { idbGet } from '../lib/idb.js';
+(async () => {
+  try {
+    const handle = await idbGet(IDB_HANDLE_KEY);
+    if (handle && typeof handle.queryPermission !== 'function') {
+      const banner = document.getElementById('huskWarn');
+      if (banner) banner.style.display = 'block';
+      document.getElementById('outDir').textContent = 'not set (needs re-pick)';
+    }
+  } catch (e) { /* swallow */ }
+})();
