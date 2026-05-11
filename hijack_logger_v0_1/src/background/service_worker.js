@@ -32,6 +32,21 @@ chrome.storage.local.get(['rawSidecar', 'schemaWarn', 'totals']).then((r) => {
   rawWriter.setEnabled(state.settings.rawSidecar);
 });
 
+// ─── Keep-alive (MV3 service workers get evicted after ~30s idle) ──
+// We register a chrome.alarms tickle so the SW stays warm during a Hijack
+// session. Each alarm fire reaches into state, which keeps the worker
+// alive. Alarms with periods >= 30s are persistent across SW evictions.
+chrome.alarms.create('hjk-keepalive', { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'hjk-keepalive') {
+    // No-op; just touching state keeps the SW warm
+    const tabCount = state.perTab.size;
+    if (tabCount > 0) {
+      console.log(`[hjk] keepalive tick: ${tabCount} active Hijack tab(s), ${state.totals.frames} total frames`);
+    }
+  }
+});
+
 // ─── Programmatic MAIN-world injection ────────────────────────────
 chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (details.frameId !== 0) return;
@@ -111,11 +126,8 @@ async function handleHandComplete(tabId, gameID, hand) {
   const tab = state.perTab.get(tabId);
   if (!tab) return;
 
-  // Track whether hero was dealt in (for popup informational split), but
-  // write all hands regardless. The .txt file is the full record of every
-  // hand observed at the table, including ones the user wasn't dealt into.
-  // The renderer handles missing hero data gracefully (omits the "Dealt to"
-  // line + treats hero rows in the summary like any other unrevealed seat).
+  console.log(`[hjk] hand complete: gameID=${gameID} handNo=${hand.handNo} hero.cards=${hand.hero?.cards?.length || 0} ended=${hand.ended}`);
+
   const heroPlayed = hand.hero && hand.hero.cards && hand.hero.cards.length > 0;
   if (heroPlayed) {
     tab.handsPlayed = (tab.handsPlayed || 0) + 1;
@@ -125,7 +137,6 @@ async function handleHandComplete(tabId, gameID, hand) {
     state.totals.spectatorHands = (state.totals.spectatorHands || 0) + 1;
   }
 
-  // Heuristics check
   const check = runHandHeuristics(hand);
   const degraded = !check.ok || hand.degraded;
   if (degraded) {
@@ -138,19 +149,20 @@ async function handleHandComplete(tabId, gameID, hand) {
   tab.hands++;
   state.totals.handsCompleted++;
 
-  // Render + write — every hand observed, hero-played or spectator
   try {
     const text = renderHand(hand);
+    console.log(`[hjk] rendered hand ${hand.handNo}: ${text.length} chars; writing to disk...`);
     const result = await sessionWriter.writeHand(tabId, gameID, tab.startedAt, text);
     if (!result.ok) {
-      console.warn('[hjk] hand write failed:', result.error);
+      console.warn(`[hjk] hand write FAILED: gameID=${gameID} handNo=${hand.handNo} error=${result.error} consecutive=${result.consecutiveErrors}`);
+    } else {
+      console.log(`[hjk] hand WROTE: gameID=${gameID} handNo=${hand.handNo} file=${result.filename} totalWritten=${result.handsWritten}`);
     }
   } catch (e) {
-    console.warn('[hjk] hand render/write error:', e.message);
+    console.warn(`[hjk] hand render/write threw: gameID=${gameID} handNo=${hand.handNo} error=${e.message} stack=${e.stack}`);
     hand.degraded = true;
   }
 
-  // Persist totals so SW eviction doesn't lose all
   chrome.storage.local.set({ totals: state.totals }).catch(() => {});
 }
 
@@ -306,4 +318,4 @@ function handlePopupMessage(msg, sender, sendResponse) {
   return false;
 }
 
-console.log('[hjk] service worker booted v0.2.0');
+console.log('[hjk] service worker booted v0.1.5');

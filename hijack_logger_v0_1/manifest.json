@@ -2,13 +2,14 @@
   "manifest_version": 3,
   "name": "Hijack Poker HH Logger",
   "short_name": "HijackLogger",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Personal hand history logger for Hijack Poker. Captures WebSocket frames, emits PokerStars-format .txt files for HM3 import.",
   "permissions": [
     "scripting",
     "storage",
     "tabs",
-    "webNavigation"
+    "webNavigation",
+    "alarms"
   ],
   "host_permissions": [
     "https://game.hijack.poker/*",
