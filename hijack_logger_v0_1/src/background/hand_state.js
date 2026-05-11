@@ -11,6 +11,29 @@ import {
   detectStreetTransition, detectHeroCardReveal, detectShowdownReveals,
 } from './parser.js';
 
+/**
+ * Compute likely SB/BB seats from dealer position + occupied seats.
+ * Cash-game rotation: SB = next occupied seat clockwise after dealer, BB =
+ * the one after that. Heads-up special case: dealer is SB, the other player
+ * is BB. Returns {sb, bb} both nullable.
+ */
+export function computeBlindSeats(dealerSeat, seatsArr) {
+  if (!dealerSeat || !Array.isArray(seatsArr) || seatsArr.length === 0) {
+    return { sb: null, bb: null };
+  }
+  const occupied = seatsArr.map(s => s.seat).filter(Boolean).sort((a, b) => a - b);
+  const dealerIdx = occupied.indexOf(dealerSeat);
+  if (dealerIdx < 0 || occupied.length < 2) return { sb: null, bb: null };
+  if (occupied.length === 2) {
+    // Heads-up: dealer posts SB, the other player posts BB
+    return { sb: dealerSeat, bb: occupied[(dealerIdx + 1) % 2] };
+  }
+  return {
+    sb: occupied[(dealerIdx + 1) % occupied.length],
+    bb: occupied[(dealerIdx + 2) % occupied.length],
+  };
+}
+
 const STATE = {
   IDLE: 'idle',
   PREFLOP: 'preflop',
@@ -124,6 +147,22 @@ export class TableState {
   _startHand(snap) {
     // Capture initial table state — seats, stacks, button, blinds
     this.heroSeat = 0;
+    // v0.2.3: default SB to floor(BB/2) via integer-cents math (avoids the
+    // (bb/2).toFixed(2) rounding bug for BB=$0.05 -> "$0.03"). If we later
+    // see GAME_PLAYER_SMALL_BLIND, hand.sb gets overwritten with the actual
+    // observed amount.
+    const bbCents = Math.round((snap.bb || 0) * 100);
+    const defaultSBCents = Math.floor(bbCents / 2);
+    // v0.2.4: compute SB/BB seats deterministically from dealer + occupied
+    // seats. Cash games rotate clockwise: SB = next occupied seat after
+    // dealer, BB = the one after that. We DO NOT trust snap.bbSeat (game
+    // .bbPlayer field) because Hijack reports stale values in the first
+    // frame of a new hand — the field updates by GAME_MSG_DEAL_CARDS but
+    // _startHand fires on GAME_MSG_DEALER_BUTTON. Direct observation:
+    // for hand 105097, first frame had bbPlayer=1 (stale from prior hand),
+    // second frame had bbPlayer=2 (correct), and the actual BB was indeed
+    // seat 2 per the dealer-rotation rule.
+    const computed = computeBlindSeats(snap.dealerSeat, snap.seats);
     this.currentHand = {
       gameID: snap.gameID,
       handNo: snap.gameNo,
@@ -131,10 +170,10 @@ export class TableState {
       startedAt: snap.lastmove,
       lastMove: snap.lastmove,
       buttonSeat: snap.dealerSeat,
-      bbSeat: snap.bbSeat,
-      sbSeat: null,        // resolved from first SB post (some HU games skip SB)
-      bb: snap.bb,         // refined when GAME_PLAYER_BIG_BLIND fires
-      sb: 0,               // refined when GAME_PLAYER_SMALL_BLIND fires
+      bbSeat: computed.bb,    // refined when GAME_PLAYER_BIG_BLIND fires
+      sbSeat: computed.sb,    // refined when GAME_PLAYER_SMALL_BLIND fires
+      bb: snap.bb,             // refined when GAME_PLAYER_BIG_BLIND fires
+      sb: defaultSBCents / 100, // refined when GAME_PLAYER_SMALL_BLIND fires
       blindLevels: snap.blindLevels,
       gameType: snap.gameTypeDisplayName,
       currencySign: snap.currencySign,

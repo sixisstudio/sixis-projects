@@ -35,7 +35,48 @@ export function renderHand(hand) {
   }
 
   // ─── Blinds (from preflop actions of kind 'blind') ──────────────
+  // v0.2.3: if we never saw blind events (parser joined mid-hand), synthesize
+  // them from hand.sbSeat / hand.bbSeat / hand.sb / hand.bb so PokerTracker
+  // can compute the pot correctly. Without these lines PT4 reports
+  // "Invalid pot size" because the action sum doesn't reach the SB+BB starting
+  // pot. Synthesized blind lines use the BB position (snap.bbSeat) we know
+  // from the snapshot.
   const blindActions = (hand.streets.preflop || []).filter(a => a.kind === 'blind');
+  const sawSB = blindActions.some(b => b.type === 'sb');
+  const sawBB = blindActions.some(b => b.type === 'bb');
+
+  if (!sawSB && hand.sbSeat && hand.sb > 0) {
+    const seat = hand.seats.find(s => s.seat === hand.sbSeat);
+    if (seat) {
+      const name = resolveName(seat.guid, hand);
+      lines.push(`${name}: posts small blind ${hand.currencySign}${hand.sb.toFixed(2)}`);
+    }
+  }
+  if (!sawBB && hand.bbSeat && hand.bb > 0) {
+    const seat = hand.seats.find(s => s.seat === hand.bbSeat);
+    if (seat) {
+      const name = resolveName(seat.guid, hand);
+      lines.push(`${name}: posts big blind ${hand.currencySign}${hand.bb.toFixed(2)}`);
+    }
+  }
+  // Also handle the case where bb is known but sbSeat isn't — compute SB seat
+  // as the seat one before bbSeat (skipping unoccupied seats). Common when
+  // we joined mid-preflop and saw bbSeat from snap but no SB event yet.
+  if (!sawSB && !hand.sbSeat && hand.bbSeat && hand.sb > 0) {
+    const seatOrder = hand.seats.map(s => s.seat).sort((a, b) => a - b);
+    const bbIdx = seatOrder.indexOf(hand.bbSeat);
+    if (bbIdx > 0) {
+      const sbSeatId = seatOrder[bbIdx - 1];
+      const seat = hand.seats.find(s => s.seat === sbSeatId);
+      if (seat) {
+        const name = resolveName(seat.guid, hand);
+        lines.push(`${name}: posts small blind ${hand.currencySign}${hand.sb.toFixed(2)}`);
+      }
+    }
+  }
+
+  // Then render any blind actions we DID see (in case both synthesis + actuals
+  // need to coexist, e.g., a late-joining player posting SB out of position)
   for (const b of blindActions) {
     const seat = hand.seats.find(s => s.seat === b.seat);
     if (!seat) continue;
