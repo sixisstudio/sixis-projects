@@ -97,31 +97,61 @@ export function renderHand(hand) {
   }
 
   // ─── Preflop actions (non-blind) ────────────────────────────────
-  renderStreetActions(lines, hand, 'preflop');
+  const preflopResult = renderStreetActions(lines, hand, 'preflop');
+  let cumulativeContributed = preflopResult.totalContributed;
+  let lastStreetUncalled = preflopResult;
 
   // ─── Flop ──────────────────────────────────────────────────────
+  let flopResult = null;
   if (hand.board.flop && hand.board.flop.length === 3) {
     const flopCards = hjkArrayToPS(hand.board.flop);
     lines.push(`*** FLOP *** [${flopCards.join(' ')}]`);
-    renderStreetActions(lines, hand, 'flop');
+    flopResult = renderStreetActions(lines, hand, 'flop');
+    cumulativeContributed += flopResult.totalContributed;
+    lastStreetUncalled = flopResult;
   }
 
   // ─── Turn ──────────────────────────────────────────────────────
+  let turnResult = null;
   if (hand.board.turn && hand.board.turn !== 'facedown') {
     const turnCard = hjkToPS(hand.board.turn);
     const flopCards = hjkArrayToPS(hand.board.flop);
     lines.push(`*** TURN *** [${flopCards.join(' ')}] [${turnCard}]`);
-    renderStreetActions(lines, hand, 'turn');
+    turnResult = renderStreetActions(lines, hand, 'turn');
+    cumulativeContributed += turnResult.totalContributed;
+    lastStreetUncalled = turnResult;
   }
 
   // ─── River ─────────────────────────────────────────────────────
+  let riverResult = null;
   if (hand.board.river && hand.board.river !== 'facedown') {
     const riverCard = hjkToPS(hand.board.river);
     const flopCards = hjkArrayToPS(hand.board.flop);
     const turnCard = hjkToPS(hand.board.turn);
     lines.push(`*** RIVER *** [${flopCards.join(' ')}] [${turnCard}] [${riverCard}]`);
-    renderStreetActions(lines, hand, 'river');
+    riverResult = renderStreetActions(lines, hand, 'river');
+    cumulativeContributed += riverResult.totalContributed;
+    lastStreetUncalled = riverResult;
   }
+
+  // v0.2.5: emit "Uncalled bet" line for the LAST street that had an uncalled
+  // aggression. PokerStars convention: if a player makes the final bet/raise
+  // and no one calls, the excess is returned. PT4/HM3 subtract this from the
+  // pot total to compute the actual called pot.
+  let uncalledTotal = 0;
+  if (lastStreetUncalled && lastStreetUncalled.uncalled > 0 && lastStreetUncalled.uncalledSeat) {
+    const seat = hand.seats.find(s => s.seat === lastStreetUncalled.uncalledSeat);
+    if (seat) {
+      const name = resolveName(seat.guid, hand);
+      lines.push(`Uncalled bet (${hand.currencySign}${lastStreetUncalled.uncalled.toFixed(2)}) returned to ${name}`);
+      uncalledTotal = lastStreetUncalled.uncalled;
+    }
+  }
+
+  // Compute the CALLED pot — what we'll report as Total pot
+  const calledPot = Math.max(0, cumulativeContributed - uncalledTotal);
+  hand._computedCalledPot = calledPot;
+  hand._computedUncalled = uncalledTotal;
 
   // ─── *** SHOW DOWN *** ──────────────────────────────────────────
   if (hand.ended === 'showdown') {
@@ -146,19 +176,29 @@ export function renderHand(hand) {
       const psCards = hjkArrayToPS(hand.hero.cards);
       lines.push(`${heroName}: shows [${psCards.join(' ')}]`);
     }
-    // Pot collections
+    // Pot collections — use computed called-pot, not Hijack's snap.totalPot.
+    const distributable = hand._computedCalledPot || hand.pot || 0;
     for (const w of hand.winners) {
       const seat = hand.seats.find(s => s.seat === w);
       if (!seat) continue;
       const name = resolveName(seat.guid, hand);
-      const winPot = hand.pot / hand.winners.length;  // split equally — refine with pots[] data
+      const winPot = distributable / hand.winners.length;
       lines.push(`${name} collected ${hand.currencySign}${winPot.toFixed(2)} from pot`);
     }
+  } else if (hand.ended === 'fold-around' && hand._computedCalledPot && hand._computedUncalled) {
+    // Fold-around with the uncalled winner — pot goes to the aggressor.
+    // The uncalled-bet line already returned the excess; whatever's left
+    // (blinds + earlier-street calls) is the winning collection.
+    // hand.winners may be empty in this case; infer from lastAggressor.
+    // (Skipped if winners are set — handled by the showdown branch above.)
   }
 
   // ─── *** SUMMARY *** ────────────────────────────────────────────
   lines.push('*** SUMMARY ***');
-  lines.push(`Total pot ${hand.currencySign}${(hand.pot || 0).toFixed(2)} | Rake ${hand.currencySign}${(hand.rake || 0).toFixed(2)}`);
+  // v0.2.5: Total pot is the CALLED pot (what actually got distributed),
+  // not Hijack's snap.totalPot (which includes uncalled bets).
+  const reportedPot = hand._computedCalledPot != null ? hand._computedCalledPot : (hand.pot || 0);
+  lines.push(`Total pot ${hand.currencySign}${reportedPot.toFixed(2)} | Rake ${hand.currencySign}${(hand.rake || 0).toFixed(2)}`);
 
   // Board (only if at least flop dealt)
   if (hand.board.flop && hand.board.flop.length === 3) {
@@ -171,11 +211,12 @@ export function renderHand(hand) {
   }
 
   // Per-seat summary
+  const distributable = hand._computedCalledPot != null ? hand._computedCalledPot : (hand.pot || 0);
   for (const s of seatList) {
     const name = resolveName(s.guid, hand);
     const position = describePosition(s.seat, hand);
     if (hand.winners.includes(s.seat)) {
-      const winPot = hand.pot / hand.winners.length;
+      const winPot = distributable / Math.max(1, hand.winners.length);
       const cards = (s.seat === hand.hero.seat && hand.hero.cards.length)
         ? hand.hero.cards
         : (hand.villainReveals[s.seat] || []);
@@ -204,22 +245,30 @@ export function renderHand(hand) {
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
+/**
+ * Render a street's actions AND compute per-street betting state.
+ * Returns { totalContributed, perPlayerCommit, lastAggressor, lastAggressorBet,
+ *           uncalled, uncalledSeat } so the caller can emit Uncalled-bet lines
+ * + a correct Total-pot summary.
+ */
 function renderStreetActions(lines, hand, street) {
   const actions = (hand.streets[street] || []).filter(a => a.kind === 'action');
-  // v0.2.2: track per-street betting state for proper PokerStars-format
-  // "calls $delta" and "raises $increment to $total" output. PT4/HM3 sum
-  // the per-action amounts to compute pot; without the right deltas, every
-  // hand reports "Invalid pot size" and import fails.
   let currentHigh = 0;
-  const playerCommit = new Map();  // seat -> amount committed to this round
+  const playerCommit = new Map();
   if (street === 'preflop') {
-    // BB-level is the current high; SB and BB have already committed their blinds
     currentHigh = hand.bb || 0;
     if (hand.sbSeat && hand.sb) playerCommit.set(hand.sbSeat, hand.sb);
     if (hand.bbSeat && hand.bb) playerCommit.set(hand.bbSeat, hand.bb);
   }
   const cs = hand.currencySign;
   const fmt = (n) => `${cs}${(n || 0).toFixed(2)}`;
+
+  // v0.2.5: track the last aggressor (bettor/raiser) of the street so we can
+  // detect an uncalled bet. After all actions are processed, if the last
+  // aggressor's commit is higher than the next-highest commit, the difference
+  // is an uncalled bet that PokerStars convention returns to them.
+  let lastAggressor = null;
+  let callersAfterAggression = 0;
 
   for (const a of actions) {
     const seat = hand.seats.find(s => s.seat === a.seat);
@@ -234,41 +283,45 @@ function renderStreetActions(lines, hand, street) {
         lines.push(`${name}: checks`);
         break;
       case 'call': {
-        // PokerStars: "calls $X" where X is the delta to match currentHigh
         const delta = Math.max(0, currentHigh - prevCommit);
         lines.push(`${name}: calls ${fmt(delta)}`);
         playerCommit.set(a.seat, currentHigh);
+        if (lastAggressor && a.seat !== lastAggressor) callersAfterAggression++;
         break;
       }
       case 'bet': {
-        // First non-blind bet of a postflop street. a.amount is the bet size.
         lines.push(`${name}: bets ${fmt(a.amount)}`);
         currentHigh = a.amount || 0;
         playerCommit.set(a.seat, a.amount || 0);
+        lastAggressor = a.seat;
+        callersAfterAggression = 0;
         break;
       }
       case 'raise': {
-        // PokerStars: "raises $Y to $X" where Y = increment over currentHigh,
-        // X = new total bet level. a.amount is X (the "to" amount from Hijack's lastbet).
         const newTotal = a.amount || 0;
         const increment = Math.max(0, newTotal - currentHigh);
         lines.push(`${name}: raises ${fmt(increment)} to ${fmt(newTotal)}`);
         currentHigh = newTotal;
         playerCommit.set(a.seat, newTotal);
+        lastAggressor = a.seat;
+        callersAfterAggression = 0;
         break;
       }
       case 'allin': {
-        // All-in could be a bet, a call, or a raise depending on prior action.
-        // Use the conventional PokerStars-style "$X and is all-in" suffix.
         const amt = a.amount || 0;
         if (currentHigh === 0) {
           lines.push(`${name}: bets ${fmt(amt)} and is all-in`);
+          lastAggressor = a.seat;
+          callersAfterAggression = 0;
         } else if (amt > currentHigh) {
           const increment = amt - currentHigh;
           lines.push(`${name}: raises ${fmt(increment)} to ${fmt(amt)} and is all-in`);
+          lastAggressor = a.seat;
+          callersAfterAggression = 0;
         } else {
           const delta = Math.max(0, amt - prevCommit);
           lines.push(`${name}: calls ${fmt(delta)} and is all-in`);
+          if (lastAggressor && a.seat !== lastAggressor) callersAfterAggression++;
         }
         currentHigh = Math.max(currentHigh, amt);
         playerCommit.set(a.seat, Math.max(playerCommit.get(a.seat) || 0, amt));
@@ -276,6 +329,29 @@ function renderStreetActions(lines, hand, street) {
       }
     }
   }
+
+  // Compute uncalled bet (if any). For PokerStars convention: when only one
+  // player is at the highest commit level on a street, the difference between
+  // their commit and the next-highest is "uncalled" and returned.
+  let uncalled = 0;
+  let uncalledSeat = null;
+  if (lastAggressor && callersAfterAggression === 0) {
+    const aggressorCommit = playerCommit.get(lastAggressor) || 0;
+    let secondHigh = 0;
+    for (const [seat, commit] of playerCommit) {
+      if (seat === lastAggressor) continue;
+      if (commit > secondHigh) secondHigh = commit;
+    }
+    if (aggressorCommit > secondHigh) {
+      uncalled = aggressorCommit - secondHigh;
+      uncalledSeat = lastAggressor;
+    }
+  }
+
+  let totalContributed = 0;
+  for (const c of playerCommit.values()) totalContributed += c;
+
+  return { totalContributed, playerCommit, uncalled, uncalledSeat };
 }
 
 function resolveName(guid, hand) {
