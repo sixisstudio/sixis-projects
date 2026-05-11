@@ -279,14 +279,9 @@ function handlePopupMessage(msg, sender, sendResponse) {
       return true;
     }
 
-    case 'open_output_dir': {
-      // No portable way to "reveal in finder" from extension context.
-      // Best we can do: tell user the dir name.
-      chrome.storage.local.get(['outputDirName'], (r) => {
-        sendResponse({ ok: true, name: r.outputDirName || null });
-      });
-      return true;
-    }
+    // 'open_output_dir' removed in v0.1.1. Chrome doesn't expose absolute
+    // paths for FSA-picked folders, so there's no portable way to open the
+    // folder in the OS file manager from extension context.
   }
   return false;
 }

@@ -62,9 +62,10 @@ document.getElementById('pickDir').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('openOutDir').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ kind: 'open_output_dir' });
-});
+// Note: "Open output folder" button removed in v0.1.1. Chrome's File System
+// Access API gives extensions a directory HANDLE, never the absolute path
+// — by design. So there's no way to "Show in Finder/Explorer" from
+// extension context. User navigates via their OS file manager.
 
 // ─── Settings toggles ──────────────────────────────────────────────
 ['rawSidecar', 'schemaWarn'].forEach((id) => {

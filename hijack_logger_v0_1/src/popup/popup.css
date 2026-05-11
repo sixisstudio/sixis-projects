@@ -39,12 +39,20 @@ section {
 .output-config .label { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
 .output-config #outDir {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: #374151;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+}
+
+.output-config .dir-hint {
+  font-size: 10px;
+  color: #9ca3af;
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 button {
@@ -107,8 +115,3 @@ button:disabled { background: #94a3b8; cursor: not-allowed; }
   cursor: pointer;
 }
 
-footer {
-  margin-top: 12px;
-  padding-top: 8px;
-  border-top: 1px solid #e5e7eb;
-}
