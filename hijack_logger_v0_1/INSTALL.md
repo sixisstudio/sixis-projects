@@ -38,34 +38,44 @@ Examples:
 
 If you can't infer the URL from what the user gave you, ask them: "What's the git URL of the project repo?"
 
-### Step 2 — Pick a stable local path
-
-Default:
-- macOS / Linux: `~/Tools/<repo-name>`
-- Windows: `C:\Tools\<repo-name>`
-
-If `~/Tools` doesn't exist, create it. If the target path already exists (user installed before), use `git -C <path> pull` to update instead of cloning fresh.
-
-### Step 3 — Clone (or pull)
+### Step 2 — Detect the OS
 
 ```bash
-mkdir -p ~/Tools                # or equivalent on Windows
-cd ~/Tools
-if [ -d <repo-name> ]; then
-  cd <repo-name>
-  git pull --ff-only
+uname -s    # "Darwin" = macOS, "Linux" = Linux, "MINGW*"/"MSYS*"/"CYGWIN*" = Windows
+```
+
+If on Windows under Git Bash, you can still use the POSIX-style commands below but the user's filesystem paths use backslashes (translated automatically by Git Bash).
+
+### Step 3 — Ask the user where to clone the project
+
+**Don't hardcode the path.** Ask the user where they want the project installed so they have control of their file system. Use `AskUserQuestion` if available; otherwise plain prompt. Provide a sensible default they can accept by hitting Enter.
+
+Suggested defaults (offer these but accept any path the user types):
+- macOS / Linux: `~/Tools/<repo-name>`
+- Windows: `C:\Tools\<repo-name>` (or `~/Tools/<repo-name>` if they're in Git Bash with a Linux-y mental model)
+
+If the user already has the project somewhere (re-install), they can point at the existing path and you'll `git pull` instead of cloning fresh.
+
+### Step 4 — Clone (or pull)
+
+```bash
+TARGET="<path-user-chose>"        # absolute path
+mkdir -p "$(dirname "$TARGET")"
+if [ -d "$TARGET/.git" ]; then
+  echo "Existing checkout at $TARGET — pulling latest"
+  git -C "$TARGET" pull --ff-only
 else
-  git clone <repo-url> <repo-name>
-  cd <repo-name>
+  git clone <repo-url> "$TARGET"
 fi
+cd "$TARGET"
 ```
 
-Verify the clone succeeded by checking for `manifest.json` and `src/background/ws_proxy.js`.
+Verify by checking for `manifest.json` and `src/background/ws_proxy.js` in `$TARGET`.
 
-### Step 4 — Tell the user
+### Step 5 — Confirm with the user
 
 ```
-✓ Cloned to ~/Tools/<repo-name>
+✓ Cloned to <path>
 Now running the install playbook…
 ```
 

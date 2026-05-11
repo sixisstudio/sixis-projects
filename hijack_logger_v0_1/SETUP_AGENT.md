@@ -2,7 +2,7 @@
 
 **Read this file in full, then execute the steps below.** You are setting up the Hijack Poker HH Logger Chrome extension on the user's machine.
 
-This is a fully agentic install: you drive Chrome via MCP, the user only approves dialogs and picks an output folder at the end.
+This playbook is **OS-agnostic** (macOS, Windows, Linux all supported). It uses only `mcp__Claude_in_Chrome__*` tools — no `mcp__computer-use__*` dependency. The user drives the native file picker themselves (one click), giving them full control over file-system paths.
 
 ## How you got here
 
@@ -20,12 +20,12 @@ If any of those files are missing, STOP and resolve (clone the repo, fix the wor
 
 ---
 
-## Prerequisites you can assume (the user followed `OPERATOR_GUIDE.md`)
+## Prerequisites you can assume
 
 - Google Chrome is installed.
-- Claude-in-Chrome browser extension is installed and signed in.
-- On macOS: the `computer-use` MCP server is available to you (tools named `mcp__computer-use__*`).
+- Claude-in-Chrome browser extension is installed and signed in to the same Anthropic account as Claude Code.
 - The current working directory IS the extension folder (contains `manifest.json`).
+- The user is at their keyboard and can click once when prompted (one click for the OS file picker, one click to approve Chrome-extension pair, one click to pick the output folder later).
 
 Confirm assumptions before doing anything destructive.
 
@@ -35,43 +35,31 @@ Confirm assumptions before doing anything destructive.
 
 Run these in parallel:
 
-1. `pwd` and `ls manifest.json src/background/ws_proxy.js src/content/relay.js` — verify the extension folder structure is intact.
-2. `which google-chrome 2>/dev/null; ls -d "/Applications/Google Chrome.app" 2>/dev/null` — confirm Chrome is installed.
-3. List currently connected Chrome browsers via the Claude-in-Chrome MCP tool `list_connected_browsers`. If zero browsers connected, instruct the user to open Chrome and ensure the Claude-in-Chrome extension is signed in.
+1. `pwd` and `ls manifest.json src/background/ws_proxy.js src/content/relay.js` — verify the extension folder structure is intact. **Capture the absolute path** — you'll need it for Phase 3.4.
+2. Detect OS via `uname -s` (Darwin / Linux / MINGW*-MSYS*-CYGWIN*) so you can phrase user-facing instructions correctly.
+3. Confirm Chrome is installed:
+   - macOS: `ls -d "/Applications/Google Chrome.app"`
+   - Windows: `ls "/c/Program Files/Google/Chrome/Application/chrome.exe" 2>/dev/null || ls "/c/Program Files (x86)/Google/Chrome/Application/chrome.exe" 2>/dev/null`
+   - Linux: `which google-chrome || which chromium`
+4. List currently connected Chrome browsers via `mcp__Claude_in_Chrome__list_connected_browsers`. If zero browsers connected, instruct the user to open Chrome and ensure the Claude-in-Chrome extension is signed in.
 
 If any of these fail, **STOP and tell the user what to fix.** Do not proceed.
 
-If multiple Chrome browsers are connected (e.g., they have it on Mac + iPad), use `AskUserQuestion` to ask which one to install into. Default to the local one ("isLocal: true").
+If multiple Chrome browsers are connected (e.g., user has it on Mac + a Windows PC), use `AskUserQuestion` to ask which one to install into. Default to the local one (`isLocal: true`).
 
 Once they pick one, call `select_browser` with that deviceId.
 
 ---
 
-## Phase 2 — Computer-use access for Chrome (macOS)
+## Phase 2 — (No-op, removed)
 
-You need to drive the macOS Open dialog when Chrome prompts for the extension folder. That dialog is a native macOS UI element, not a web page, so Claude-in-Chrome can't reach it — you need `computer-use`.
-
-Bundle the access request UP FRONT (per Tommy's persistent rule on avoiding multiple dialogs):
-
-```
-mcp__computer-use__request_access({
-  apps: ["Google Chrome"],
-  reason: "Sideload the Hijack Logger extension and drive the macOS Open dialog to pick the extension folder.",
-  clipboardWrite: true,
-  clipboardRead: true,
-  systemKeyCombos: true
-})
-```
-
-The user gets ONE macOS dialog. They approve.
-
-If they deny, **STOP and tell them you can't proceed without it.** Fall back to instructing them to follow `SIDELOAD_TEST.md` manually.
+Previous versions of this playbook required `mcp__computer-use__*` access on macOS to drive the file picker. **No longer needed** — the user drives the native picker themselves in Phase 3.4. This phase is intentionally left in place so phase numbering stays stable across docs.
 
 ---
 
 ## Phase 3 — Sideload the extension
 
-Step-by-step. Use `mcp__Claude_in_Chrome__browser_batch` to batch each batch where possible.
+Step-by-step. Use `mcp__Claude_in_Chrome__browser_batch` to batch actions where possible.
 
 ### 3.1 Open chrome://extensions/
 
@@ -79,14 +67,14 @@ Step-by-step. Use `mcp__Claude_in_Chrome__browser_batch` to batch each batch whe
 tabs_create_mcp   →  get a new tabId
 navigate(tabId, "chrome://extensions/")
 wait 2s
-screenshot — capture the state
+screenshot
 ```
 
 ### 3.2 Verify and enable Developer Mode
 
 Take a screenshot. The Developer mode toggle is in the top-right of `chrome://extensions/`.
 
-- If it's **ON** (toggle is blue/right-position): skip to 3.3.
+- If it's **ON** (toggle in the right/active position): skip to 3.3.
 - If it's **OFF**: click the toggle. Wait 1s. Verify it flipped via another screenshot.
 
 You may need `find` with query "Developer mode toggle" to get a precise element reference.
@@ -95,26 +83,26 @@ You may need `find` with query "Developer mode toggle" to get a precise element 
 
 Once Developer mode is on, three buttons appear: **Load unpacked**, **Pack extension**, **Update**. Click "Load unpacked".
 
-This opens a **native macOS Open dialog** — `mcp__Claude_in_Chrome` CAN'T drive it. Switch to `mcp__computer-use__*`.
+This opens a **native OS file picker** (Finder on macOS, File Explorer on Windows, GTK on Linux). `mcp__Claude_in_Chrome` CAN'T drive native dialogs — they live outside Chrome.
 
-### 3.4 Drive the macOS Open dialog (computer-use)
+### 3.4 Tell the user to pick the extension folder
 
-You'll see the macOS Finder file picker focused on Chrome.
+**Stop driving Chrome.** The user needs to do this one step manually.
 
-Use the **Go to Folder** shortcut to skip navigation:
+Tell the user, verbatim:
 
-```
-mcp__computer-use__key({ text: "cmd+shift+g" })
-wait 500ms
-mcp__computer-use__type({ text: "<absolute-path-of-extension-folder>" })
-mcp__computer-use__key({ text: "Return" })
-wait 500ms
-mcp__computer-use__key({ text: "Return" })   # confirms the selection — "Select" / "Open" button
-```
+> Chrome just opened a file picker. Please navigate to:
+>
+>    `<absolute path of extension folder from Phase 1>`
+>
+> and click **Select Folder** (Windows) / **Open** (macOS) / **Open** (Linux).
+>
+> On macOS you can press **⌘⇧G** in the picker, paste the path, and press Return to skip the navigation.
+> On Windows you can paste the path into the address bar at the top of the File Explorer dialog and press Enter.
+>
+> Tell me "done" or "selected" when the picker has closed.
 
-The `<absolute-path-of-extension-folder>` is the absolute path of the current working directory (`pwd` from Phase 1). Make sure to use the absolute, not relative path.
-
-If `cmd+shift+g` doesn't work (some macOS versions), fall back to: take a screenshot, identify the file picker's navigation tree, click through Home → Tools → hijack_logger (or wherever the project lives), click "Select" or "Open".
+Wait for the user to confirm. **Don't proceed until they do.** If they say something went wrong (wrong folder, canceled, etc.), have them re-open the picker by re-clicking "Load unpacked" on the Chrome tab and try again.
 
 ### 3.5 Verify the extension loaded
 
@@ -220,9 +208,12 @@ Tell the user, verbatim:
 
 > Setup looks good. Now click the Hijack Logger icon in your Chrome toolbar (top right), then click "Change" next to "Output directory", and pick a folder for your hand histories.
 >
-> Recommended: a folder that's synced to your Windows machine — Dropbox, iCloud Drive, or OneDrive — so HM3 on Windows can auto-import them. Something like `~/Dropbox/HM3_Imports/` works well.
+> **Recommended folder choices:**
+> - If you play on Mac AND review on a separate Windows PC running HM3: use a synced folder so files appear on both — `~/Dropbox/HM3_Imports/`, `~/iCloud Drive/HM3_Imports/`, or `~/OneDrive/HM3_Imports/`. Configure HM3 on Windows to watch the same synced folder.
+> - If you play on the SAME machine as HM3 (Windows): pick a local folder like `C:\HM3_Imports\` and point HM3's watch folder at it.
+> - If you're just collecting hands without HM3 right now: any folder. You can move them later.
 >
-> Tell me when you've picked it and I'll verify it persisted correctly.
+> Tell me the folder name once you've picked it.
 
 Wait for user confirmation. Then verify:
 
@@ -258,7 +249,7 @@ Next steps:
 - Report any issues back to me (or the project maintainer).
 ```
 
-Also log the install to substrate (if you have access to the SiXiS dashboard CLI):
+Also log the install to substrate (if you have access to the SiXiS dashboard CLI on this machine):
 
 ```bash
 cd ~/Documents/Claude/Projects/SixiS/projects/dashboard_v0_1 && python3 scripts/sixis.py log-discovery-answer \
@@ -285,9 +276,9 @@ cd ~/Documents/Claude/Projects/SixiS/projects/dashboard_v0_1 && python3 scripts/
 | Failure | What to do |
 |---------|------------|
 | Chrome extension not paired | Tell user to open the Claude-in-Chrome extension popup and click Connect. Wait 60s, retry `list_connected_browsers`. |
-| computer-use access denied | Tell user this install requires Mac access and to grant it. Fall back to `SIDELOAD_TEST.md` if they refuse. |
+| User canceled the Load Unpacked picker | Click "Load unpacked" again from chrome://extensions and re-prompt the user with the path. |
+| User picked the wrong folder | Have them go to chrome://extensions, click "Remove" on the extension card, then re-run Phase 3 from the top. |
 | Developer mode toggle not found | `find` with query "Developer mode" or take a zoomed screenshot of the top-right of chrome://extensions to find it. |
-| Open dialog won't accept cmd+shift+g | Take screenshot, locate the file picker, click through manually via computer-use. |
 | Extension card shows red errors | Click the Errors link, screenshot the error, report to user. Common cause: missing icon files (Chrome 95+ is strict). |
 | Stealth probe FAIL on `sendNative` | The proxy patched `send` but `toString()` is leaking. Check `ws_proxy.js` `maskFunction` — make sure it sets the per-function override correctly. |
 | Frames not flowing (count = 0) | Service worker may have failed to inject the proxy. Check SW console at chrome://extensions → service worker link. Look for `[hjk]` log lines. |
@@ -297,7 +288,8 @@ cd ~/Documents/Claude/Projects/SixiS/projects/dashboard_v0_1 && python3 scripts/
 
 ## Notes for future maintainers
 
-- This playbook is the SHARED prompt for both Tommy's machine and any buddy's machine. Keep it generic — no hardcoded paths beyond what's derivable at runtime.
+- This playbook is the SHARED prompt for Tommy's machine, buddies' machines, Mac + Windows + Linux. Keep it generic — no hardcoded paths beyond what's derivable at runtime.
 - Don't add SiXiS-specific assumptions (substrate, judge tooling, etc.) into the buddy-facing flow. Substrate logging only on Tommy's box (Phase 6 caveat).
 - If you make breaking changes to `ws_proxy.js`, update the stealth probe in Phase 4.2 to match.
 - If Chrome adds a new integrity check vector or changes MV3 injection rules, add a new gate to Phase 4.
+- v0.1.0 → v0.2.0 changelog: dropped `mcp__computer-use__*` dependency. The user clicks through the OS file picker themselves. Adds ~10 seconds of interaction in exchange for Windows support + Mac/Win parity + file-path control.
