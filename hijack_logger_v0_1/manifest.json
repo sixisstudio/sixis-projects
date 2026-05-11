@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Hijack Poker HH Logger",
+  "short_name": "HijackLogger",
+  "version": "0.1.0",
+  "description": "Personal hand history logger for Hijack Poker. Captures WebSocket frames, emits PokerStars-format .txt files for HM3 import.",
+  "permissions": [
+    "scripting",
+    "storage",
+    "tabs",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://game.hijack.poker/*",
+    "https://*.hijackpoker.com/*",
+    "https://*.hijack.poker/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service_worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "Hijack Logger"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://game.hijack.poker/*"
+      ],
+      "js": ["src/content/relay.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED",
+      "all_frames": true
+    }
+  ],
+  "icons": {
+    "16": "src/icons/icon16.png",
+    "32": "src/icons/icon32.png",
+    "48": "src/icons/icon48.png",
+    "128": "src/icons/icon128.png"
+  }
+}

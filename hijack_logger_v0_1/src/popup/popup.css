@@ -1,0 +1,114 @@
+/* Hijack Logger popup styles */
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  width: 340px;
+  margin: 0;
+  padding: 12px;
+  color: #1f2937;
+  background: #ffffff;
+  font-size: 13px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 8px;
+}
+
+h1 { font-size: 16px; margin: 0; }
+h2 { font-size: 12px; text-transform: uppercase; color: #6b7280; margin: 14px 0 6px; letter-spacing: 0.5px; }
+
+.version { font-size: 11px; color: #9ca3af; }
+
+section {
+  margin-bottom: 8px;
+}
+
+.output-config .value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.output-config .label { font-size: 11px; color: #6b7280; margin-bottom: 4px; }
+.output-config #outDir {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+button {
+  font-size: 12px;
+  padding: 4px 10px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+button:hover { background: #1d4ed8; }
+button:disabled { background: #94a3b8; cursor: not-allowed; }
+
+.sessions .empty {
+  font-style: italic;
+  color: #9ca3af;
+  padding: 6px 0;
+}
+
+.session {
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+.session .table-id { font-weight: 600; color: #1f2937; }
+.session .stake { color: #6b7280; font-size: 11px; }
+.session .stats {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+  font-size: 11px;
+}
+.session .stats .degraded { color: #dc2626; }
+.session .filename {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: #6b7280;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.totals div {
+  margin: 2px 0;
+  font-size: 12px;
+}
+.totals strong {
+  display: inline-block;
+  min-width: 32px;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings label {
+  display: block;
+  margin: 4px 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+footer {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #e5e7eb;
+}

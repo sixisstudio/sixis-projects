@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Phase 0 Gate 5 — FSA Durability Micro-test</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; line-height: 1.5; color: #222; }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    h2 { font-size: 16px; margin-top: 32px; color: #555; }
+    button { font-size: 15px; padding: 10px 18px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; margin: 6px 0; }
+    button:disabled { background: #94a3b8; cursor: not-allowed; }
+    #log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: #f5f5f5; padding: 12px; border-radius: 6px; max-height: 260px; overflow: auto; white-space: pre-wrap; margin-top: 12px; }
+    .pass { color: #15803d; font-weight: 600; }
+    .fail { color: #dc2626; font-weight: 600; }
+    .step { margin: 14px 0; padding: 10px 14px; background: #fafafa; border-left: 3px solid #2563eb; }
+    code { background: #eee; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>Phase 0 Gate 5 — File System Access API Durability Test</h1>
+  <p>This page tests whether Chrome's File System Access API can sustain 500 small appends to a file and survive a Chrome restart with one-click re-grant. Per the council R2 ratification, this gate decides Q2 (FSA vs native messaging) empirically.</p>
+
+  <h2>Step 1 — Pick a directory and write 500 appends</h2>
+  <div class="step">
+    Click the button below. Pick any directory (Desktop is fine — we'll clean up after). The page will create <code>fsa_test.txt</code> there and append 500 lines to it, one at a time, with a small await between each (mimicking the per-hand write pattern).
+  </div>
+  <button id="pickAndWrite">Pick directory + write 500 lines</button>
+
+  <h2>Step 2 — Close and reopen Chrome</h2>
+  <div class="step">
+    After Step 1 reports DONE, <strong>quit Chrome entirely</strong> (Cmd+Q on Mac, Alt+F4 on Windows — not just close the tab). Reopen Chrome, navigate back to this page (it lives at <code>~/Documents/Claude/Projects/SixiS/projects/hijack_logger_v0_1/FSA_DURABILITY_TEST.html</code> — Cmd+O to open file, or drag the file into a Chrome window).
+  </div>
+
+  <h2>Step 3 — Re-grant the handle and verify</h2>
+  <div class="step">
+    Click the button below. It tries to read the stored handle from IndexedDB, request permission again (this is the re-grant — count the clicks), and verify all 500 lines are still in the file.
+  </div>
+  <button id="reGrantAndVerify">Re-grant + verify 500 lines present</button>
+
+  <h2>Result log</h2>
+  <pre id="log">[waiting — click Step 1 to begin]</pre>
+
+  <script>
+    const log = document.getElementById('log');
+    function logLine(msg, cls) {
+      const t = new Date().toISOString().slice(11, 19);
+      log.textContent = `[${t}] ${msg}\n` + log.textContent;
+      if (cls) {
+        const span = document.createElement('span');
+        span.className = cls;
+      }
+    }
+    function logPass(msg) { logLine('PASS — ' + msg, 'pass'); }
+    function logFail(msg) { logLine('FAIL — ' + msg, 'fail'); }
+    function logInfo(msg) { logLine(msg); }
+
+    // Minimal IDB shim — store ONE key 'fsaHandle' under DB 'fsa_test'
+    function idbPut(value) {
+      return new Promise((res, rej) => {
+        const req = indexedDB.open('fsa_test', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('store');
+        req.onsuccess = () => {
+          const tx = req.result.transaction('store', 'readwrite');
+          tx.objectStore('store').put(value, 'handle');
+          tx.oncomplete = () => res();
+          tx.onerror = () => rej(tx.error);
+        };
+        req.onerror = () => rej(req.error);
+      });
+    }
+    function idbGet() {
+      return new Promise((res, rej) => {
+        const req = indexedDB.open('fsa_test', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('store');
+        req.onsuccess = () => {
+          const tx = req.result.transaction('store', 'readonly');
+          const g = tx.objectStore('store').get('handle');
+          g.onsuccess = () => res(g.result);
+          g.onerror = () => rej(g.error);
+        };
+        req.onerror = () => rej(req.error);
+      });
+    }
+
+    document.getElementById('pickAndWrite').addEventListener('click', async () => {
+      if (!('showDirectoryPicker' in window)) {
+        logFail('File System Access API is not available in this browser. (Chrome 86+ required.)');
+        return;
+      }
+      try {
+        logInfo('Requesting directory picker...');
+        const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
+        logInfo(`Got directory handle: ${dir.name}`);
+        await idbPut(dir);
+        logInfo('Stored handle in IndexedDB.');
+
+        const fileHandle = await dir.getFileHandle('fsa_test.txt', { create: true });
+        logInfo('Opened fsa_test.txt for writing. Starting 500 sequential appends...');
+
+        // truncate first so re-runs start clean
+        const truncWriter = await fileHandle.createWritable();
+        await truncWriter.write('');
+        await truncWriter.close();
+
+        const t0 = performance.now();
+        let failed = 0;
+        for (let i = 0; i < 500; i++) {
+          try {
+            // open writable in "keepExistingData" mode and seek to end, mimicking append
+            const w = await fileHandle.createWritable({ keepExistingData: true });
+            const f = await fileHandle.getFile();
+            await w.seek(f.size);
+            await w.write(`line ${i.toString().padStart(3, '0')} — ${Date.now()}\n`);
+            await w.close();
+          } catch (e) {
+            failed++;
+            logInfo(`append ${i} failed: ${e.message}`);
+            if (failed > 5) {
+              logFail(`Aborting — ${failed} appends failed in a row.`);
+              return;
+            }
+          }
+          if ((i + 1) % 100 === 0) logInfo(`  ${i + 1}/500 done`);
+        }
+        const t1 = performance.now();
+        if (failed === 0) {
+          logPass(`Step 1 complete. 500/500 appends in ${(t1 - t0).toFixed(0)}ms. Now quit Chrome and reopen.`);
+        } else {
+          logFail(`Step 1 finished with ${failed} failed appends out of 500. Proceed to Step 2 anyway and we'll see if the file survives.`);
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          logInfo('Picker cancelled.');
+        } else {
+          logFail(`Step 1 errored: ${e.message}`);
+        }
+      }
+    });
+
+    document.getElementById('reGrantAndVerify').addEventListener('click', async () => {
+      try {
+        const dir = await idbGet();
+        if (!dir) {
+          logFail('No handle found in IndexedDB. Did Step 1 complete? Or did Chrome wipe the database?');
+          return;
+        }
+        logInfo(`Recovered handle for: ${dir.name}`);
+        const perm = await dir.queryPermission({ mode: 'readwrite' });
+        logInfo(`queryPermission returned: ${perm}`);
+        if (perm !== 'granted') {
+          logInfo('Requesting permission re-grant (this should be ONE click)...');
+          const t0 = performance.now();
+          const granted = await dir.requestPermission({ mode: 'readwrite' });
+          const t1 = performance.now();
+          logInfo(`requestPermission returned: ${granted} (took ${(t1 - t0).toFixed(0)}ms — most of that is your reaction time clicking allow)`);
+          if (granted !== 'granted') {
+            logFail('Permission was not granted on re-request. FSA durability FAILS — would need re-pick on every Chrome session.');
+            return;
+          }
+        } else {
+          logInfo('Permission was still granted from prior session (no re-grant needed!).');
+        }
+
+        const fileHandle = await dir.getFileHandle('fsa_test.txt');
+        const f = await fileHandle.getFile();
+        const text = await f.text();
+        const lines = text.split('\n').filter(Boolean);
+        logInfo(`File size: ${f.size} bytes, line count: ${lines.length}`);
+        if (lines.length === 500) {
+          logPass('Step 3 complete. All 500 lines survived Chrome restart. FSA durability PASSES.');
+        } else {
+          logFail(`Step 3: expected 500 lines, found ${lines.length}. FSA durability is QUESTIONABLE — flag as a maybe-fail.`);
+        }
+      } catch (e) {
+        logFail(`Step 3 errored: ${e.message}`);
+      }
+    });
+  </script>
+</body>
+</html>

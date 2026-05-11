@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hijack Logger</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Hijack Logger</h1>
+    <span class="version">v0.1.0</span>
+  </header>
+
+  <section class="output-config">
+    <div class="label">Output directory</div>
+    <div class="value">
+      <span id="outDir">not set</span>
+      <button id="pickDir">Change</button>
+    </div>
+  </section>
+
+  <section class="sessions">
+    <h2>Active sessions</h2>
+    <div id="sessionList">
+      <div class="empty">No active Hijack tabs</div>
+    </div>
+  </section>
+
+  <section class="totals">
+    <h2>Session totals</h2>
+    <div><strong id="totalHands">0</strong> hands captured</div>
+    <div><strong id="totalDegraded">0</strong> degraded</div>
+    <div><strong id="totalFrames">0</strong> frames</div>
+  </section>
+
+  <section class="settings">
+    <h2>Settings</h2>
+    <label><input type="checkbox" id="rawSidecar" checked> Always-on raw frame capture</label>
+    <label><input type="checkbox" id="schemaWarn" checked> Schema fingerprint warnings</label>
+  </section>
+
+  <footer>
+    <button id="openOutDir">Open output folder</button>
+  </footer>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
