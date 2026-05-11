@@ -16,7 +16,7 @@ const HIJACK_HOST = 'game.hijack.poker';
 // ─── State ────────────────────────────────────────────────────────
 const state = {
   perTab: new Map(),   // tabId → { sessionId, startedAt, frames, hands, degraded, tableStates: Map<gameID, TableState>, drift: DriftDetector }
-  totals: { frames: 0, handsCompleted: 0, degradedHands: 0 },
+  totals: { frames: 0, handsCompleted: 0, handsPlayed: 0, spectatorHands: 0, degradedHands: 0 },
   settings: { rawSidecar: true, schemaWarn: true },
 };
 
@@ -111,6 +111,20 @@ async function handleHandComplete(tabId, gameID, hand) {
   const tab = state.perTab.get(tabId);
   if (!tab) return;
 
+  // Track whether hero was dealt in (for popup informational split), but
+  // write all hands regardless. The .txt file is the full record of every
+  // hand observed at the table, including ones the user wasn't dealt into.
+  // The renderer handles missing hero data gracefully (omits the "Dealt to"
+  // line + treats hero rows in the summary like any other unrevealed seat).
+  const heroPlayed = hand.hero && hand.hero.cards && hand.hero.cards.length > 0;
+  if (heroPlayed) {
+    tab.handsPlayed = (tab.handsPlayed || 0) + 1;
+    state.totals.handsPlayed = (state.totals.handsPlayed || 0) + 1;
+  } else {
+    tab.spectatorHands = (tab.spectatorHands || 0) + 1;
+    state.totals.spectatorHands = (state.totals.spectatorHands || 0) + 1;
+  }
+
   // Heuristics check
   const check = runHandHeuristics(hand);
   const degraded = !check.ok || hand.degraded;
@@ -124,7 +138,7 @@ async function handleHandComplete(tabId, gameID, hand) {
   tab.hands++;
   state.totals.handsCompleted++;
 
-  // Render + write
+  // Render + write — every hand observed, hero-played or spectator
   try {
     const text = renderHand(hand);
     const result = await sessionWriter.writeHand(tabId, gameID, tab.startedAt, text);
@@ -243,6 +257,7 @@ function handlePopupMessage(msg, sender, sendResponse) {
           frames: tab.frames,
           hands: tab.hands,
           degraded: tab.degraded,
+          spectatorHands: tab.spectatorHands || 0,
           tables: perTable,
           driftAlerted: tab.drift.isAlerted(),
         });

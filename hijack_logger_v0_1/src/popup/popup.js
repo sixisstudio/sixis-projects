@@ -19,6 +19,8 @@ async function render() {
   if (!state) return;
 
   document.getElementById('totalHands').textContent = state.totals.handsCompleted || 0;
+  document.getElementById('totalPlayed').textContent = state.totals.handsPlayed || 0;
+  document.getElementById('totalSpectator').textContent = state.totals.spectatorHands || 0;
   document.getElementById('totalDegraded').textContent = state.totals.degradedHands || 0;
   document.getElementById('totalFrames').textContent = state.totals.frames || 0;
 
