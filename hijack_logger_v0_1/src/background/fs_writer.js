@@ -29,13 +29,25 @@ let huskWarned = false;  // log the stale-husk warning at most once per SW boot
  *
  * @returns {Promise<FileSystemDirectoryHandle | null>}
  */
+// v0.1.7: verbose logging so we can diagnose silent null returns.
+// Each call logs why the handle was rejected (or accepted), once per outcome
+// per SW boot to avoid log spam.
+const _outcomeLogged = new Set();
+function logOutcomeOnce(outcome, details = '') {
+  if (_outcomeLogged.has(outcome)) return;
+  _outcomeLogged.add(outcome);
+  console.log(`[hjk] getOutputDirHandle outcome=${outcome} ${details}`);
+}
+
 export async function getOutputDirHandle() {
   const handle = await idbGet(IDB_HANDLE_KEY);
-  if (!handle) return null;
+  if (!handle) {
+    logOutcomeOnce('no_handle_in_idb', '— IDB has nothing under outputDirHandle key. Re-pick in popup.');
+    return null;
+  }
   if (typeof handle.queryPermission !== 'function') {
-    // v0.1.3 stripped husk — wipe it so the user is forced to re-pick.
     if (!huskWarned) {
-      console.warn('[hjk] stale stripped handle from v0.1.3 detected in IDB; wiping. Re-pick the output folder in the popup.');
+      console.warn(`[hjk] stale stripped handle from v0.1.3 detected in IDB (name=${handle.name}, kind=${handle.kind}, typeof queryPermission=${typeof handle.queryPermission}); wiping. Re-pick the output folder in the popup.`);
       huskWarned = true;
     }
     try {
@@ -45,13 +57,32 @@ export async function getOutputDirHandle() {
     } catch (e) { /* swallow */ }
     return null;
   }
-  let perm = await handle.queryPermission({ mode: 'readwrite' });
-  if (perm === 'prompt') {
-    try { perm = await handle.requestPermission({ mode: 'readwrite' }); }
-    catch (e) { return null; }
+  let perm;
+  try {
+    perm = await handle.queryPermission({ mode: 'readwrite' });
+  } catch (e) {
+    logOutcomeOnce('queryPermission_threw', `error=${e.message}`);
+    return null;
   }
-  if (perm !== 'granted') return null;
-  return handle;
+  if (perm === 'granted') {
+    logOutcomeOnce('granted', `handle.name=${handle.name}`);
+    return handle;
+  }
+  if (perm === 'prompt') {
+    console.log(`[hjk] getOutputDirHandle: queryPermission='prompt'; trying requestPermission (note: requires user gesture, may fail in SW context)`);
+    try {
+      perm = await handle.requestPermission({ mode: 'readwrite' });
+      console.log(`[hjk] getOutputDirHandle: requestPermission returned '${perm}'`);
+    } catch (e) {
+      logOutcomeOnce('requestPermission_threw', `error=${e.message} (likely 'User activation is required' — re-pick in popup)`);
+      return null;
+    }
+    if (perm === 'granted') return handle;
+    logOutcomeOnce('request_not_granted', `final perm=${perm}`);
+    return null;
+  }
+  logOutcomeOnce('perm_denied', `queryPermission returned '${perm}'`);
+  return null;
 }
 
 /**

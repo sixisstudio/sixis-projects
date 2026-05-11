@@ -58,11 +58,30 @@ document.getElementById('pickDir').addEventListener('click', async () => {
   try {
     const handle = await window.showDirectoryPicker({ mode: 'readwrite', startIn: 'downloads' });
     console.log('[hjk] popup picked dir:', handle.name, 'kind:', handle.kind, 'queryPermission:', typeof handle.queryPermission);
-    // Write the live handle to IDB. The handle is structured-cloneable
-    // when stored via IDB (keeps queryPermission/getFileHandle methods).
+    // v0.1.7: explicitly ask for readwrite permission HERE in the popup
+    // (with user gesture). This anchors the permission grant so the SW's
+    // queryPermission() will return 'granted' instead of 'prompt' when it
+    // tries to write. Without this, FSA handles read from IDB in the SW
+    // context often come back as 'prompt' and the SW can't requestPermission
+    // (no user activation).
+    let perm = await handle.queryPermission({ mode: 'readwrite' });
+    console.log('[hjk] popup queryPermission before request:', perm);
+    if (perm !== 'granted') {
+      perm = await handle.requestPermission({ mode: 'readwrite' });
+      console.log('[hjk] popup requestPermission returned:', perm);
+    }
+    if (perm !== 'granted') {
+      console.error('[hjk] popup: readwrite permission not granted; aborting save');
+      return;
+    }
+    // Write the live handle to IDB. IDB structured-clone preserves methods.
     await idbSet(IDB_HANDLE_KEY, handle);
     await idbSet(IDB_DIRNAME_KEY, handle.name);
     console.log('[hjk] popup wrote handle to IDB');
+    // Verify the write by reading back and checking the handle is still healthy
+    const { idbGet: _idbGet } = await import('../lib/idb.js');
+    const verify = await _idbGet(IDB_HANDLE_KEY);
+    console.log('[hjk] popup readback after idbSet: typeof queryPermission =', typeof (verify && verify.queryPermission), ', name =', verify && verify.name);
     // Also mirror to chrome.storage.local for the popup's own UI restore.
     chrome.storage.local.set({ outputDirName: handle.name }).catch(() => {});
     // Notify SW so it picks up the change (no handle in the message — SW reads from IDB).
