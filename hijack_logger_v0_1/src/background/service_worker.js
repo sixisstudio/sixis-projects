@@ -163,6 +163,17 @@ async function handleHandComplete(tabId, gameID, hand) {
     hand.degraded = true;
   }
 
+  // v0.2.1: flush raw sidecar on hand-complete events (not every N frames).
+  // Cuts FSA .crswap churn ~20x — important on Google Drive's File Provider
+  // mount where atomic rename is slow and stale swaps accumulate.
+  if (state.settings.rawSidecar) {
+    try {
+      await rawWriter.flush(tabId, gameID);
+    } catch (e) {
+      console.warn('[hjk] raw sidecar flush on hand-complete failed:', e.message);
+    }
+  }
+
   chrome.storage.local.set({ totals: state.totals }).catch(() => {});
 }
 
@@ -337,4 +348,4 @@ function handlePopupMessage(msg, sender, sendResponse) {
   }
 })();
 
-console.log('[hjk] service worker booted v0.2.0');
+console.log('[hjk] service worker booted v0.2.1');

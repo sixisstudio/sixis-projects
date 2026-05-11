@@ -80,7 +80,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'offscreen_write': {
       (async () => {
         if (!cachedHandle) {
-          // Try recovery from IDB
           try {
             const h = await idbGet(IDB_HANDLE_KEY);
             if (h && typeof h.queryPermission === 'function') cachedHandle = h;
@@ -93,7 +92,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         try {
           let perm = await cachedHandle.queryPermission({ mode: 'readwrite' });
           if (perm === 'prompt') {
-            // Try once; may or may not work without user gesture
             try { perm = await cachedHandle.requestPermission({ mode: 'readwrite' }); } catch (e) {}
           }
           if (perm !== 'granted') {
@@ -106,6 +104,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           await writable.seek(file.size);
           await writable.write(msg.text);
           await writable.close();
+          // v0.2.1: cleanup pass — delete stale .crswap files in the output
+          // directory. Google Drive's File Provider doesn't reliably clean up
+          // FSA's temp files on close→rename, so they accumulate and waste
+          // disk + sync bandwidth. Each write triggers a cleanup of stale
+          // swaps (>60s old) so the folder stays tidy.
+          cleanupStaleSwaps(cachedHandle).catch(() => {});
           sendResponse({ ok: true, filename: msg.filename, fileSize: file.size + msg.text.length });
         } catch (e) {
           sendResponse({ ok: false, error: e.message });
@@ -125,5 +129,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   return false;
 });
+
+// ─── Stale .crswap cleanup ─────────────────────────────────────────
+// FSA's createWritable creates a .crswap temp file; close() atomically
+// renames it to the target. Google Drive's File Provider on macOS doesn't
+// always clean up these swaps, leaving them as 40-50MB litter that wastes
+// disk + sync bandwidth. We periodically scan the output dir and delete
+// any .crswap older than the threshold.
+const SWAP_AGE_MS = 60 * 1000;  // 60s
+let cleanupInFlight = false;
+
+async function cleanupStaleSwaps(dirHandle) {
+  if (cleanupInFlight) return;
+  cleanupInFlight = true;
+  try {
+    const now = Date.now();
+    let deleted = 0;
+    for await (const [name, entry] of dirHandle.entries()) {
+      if (!name.endsWith('.crswap')) continue;
+      if (entry.kind !== 'file') continue;
+      try {
+        const f = await entry.getFile();
+        if (now - f.lastModified > SWAP_AGE_MS) {
+          await dirHandle.removeEntry(name);
+          deleted++;
+        }
+      } catch (e) { /* swallow; next pass will retry */ }
+    }
+    if (deleted > 0) {
+      console.log(`[hjk-offscreen] cleaned up ${deleted} stale .crswap file(s)`);
+    }
+  } finally {
+    cleanupInFlight = false;
+  }
+}
 
 console.log('[hjk-offscreen] booted');

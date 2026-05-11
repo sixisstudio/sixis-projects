@@ -71,13 +71,17 @@ function redactFrame(frame) {
 }
 
 /**
- * Per-session raw writer. Accumulates frames + flushes periodically.
+ * Per-session raw writer. v0.2.1: flushes only on explicit triggers
+ * (hand-complete events from service_worker.js + 5-minute safety timer),
+ * NOT every-N-frames or every-N-seconds. Reduces FSA .crswap churn ~20x,
+ * which matters on Google Drive's File Provider mount where atomic rename
+ * is slow and stale swaps accumulate.
  */
 export class RawSidecarWriter {
   constructor(opts = {}) {
     this.sessions = new Map();  // key → { filename, buffer: [], lastFlushAt }
-    this.flushIntervalMs = opts.flushIntervalMs || 3000;
-    this.maxBufferSize = opts.maxBufferSize || 100;
+    this.maxBufferSize = opts.maxBufferSize || 5000;  // hard cap — flush if we ever hit it
+    this.safetyFlushMs = opts.safetyFlushMs || 5 * 60 * 1000;  // 5min as a safety net
     this.enabled = opts.enabled !== false;
   }
 
@@ -96,8 +100,9 @@ export class RawSidecarWriter {
   }
 
   /**
-   * Push a frame to the raw buffer. Auto-flushes when buffer fills or after
-   * flushIntervalMs since last flush.
+   * Push a frame to the buffer. Auto-flushes ONLY if buffer hits the hard
+   * cap (5000 frames) OR safety interval elapsed (5min). Routine flushes
+   * are driven by service_worker.js on hand-complete events.
    */
   async push(tabId, gameID, sessionStartedAt, frame) {
     if (!this.enabled) return;
@@ -106,7 +111,7 @@ export class RawSidecarWriter {
     const redacted = redactFrame(frame);
     sess.buffer.push(redacted);
     const now = Date.now();
-    if (sess.buffer.length >= this.maxBufferSize || now - sess.lastFlushAt > this.flushIntervalMs) {
+    if (sess.buffer.length >= this.maxBufferSize || (sess.lastFlushAt > 0 && now - sess.lastFlushAt > this.safetyFlushMs)) {
       await this.flush(tabId, gameID);
     }
   }
