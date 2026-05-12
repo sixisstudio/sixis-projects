@@ -263,12 +263,17 @@ export class TableState {
         // Will be handled in _beginStreet
         break;
       case 'action': {
+        // v0.2.12: drop invalid preflop checks (only BB / straddler can check
+        // preflop). When the relay delivers a GAME_PLAYER_CHECKS frame before
+        // the board-flop transition fires, the check lands on preflop. PT4
+        // rejects this as "action out of sequence". The synthesis layer in
+        // ps_writer.js will fill in the missing check on the correct street.
+        if (ev.action === 'check' && street === 'preflop' &&
+            ev.seat !== hand.bbSeat && ev.seat !== hand.straddleSeat) {
+          break;
+        }
         if (!hand.streets[street]) hand.streets[street] = [];
-        // v0.2.6: dedupe identical consecutive action events. When two snapshots
-        // share the same (lastplayer, languageKey, lastbet) but differ in other
-        // fields (e.g., stack updates trickle in a frame later), deriveActionEvent
-        // emits the same action twice. PT4 sees "Player X: calls $1.00 / Player X:
-        // calls $0.00" as an out-of-sequence violation. Drop the dup.
+        // v0.2.6: dedupe identical consecutive action events.
         const sig = `${street}|${ev.seat}|${ev.action}|${ev.amount || 0}`;
         if (sig === this.lastActionSig) break;
         this.lastActionSig = sig;
