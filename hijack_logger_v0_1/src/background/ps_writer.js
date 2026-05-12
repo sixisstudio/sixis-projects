@@ -384,27 +384,29 @@ function renderStreetActions(lines, hand, street, alivePastStreet) {
   //   - if currentHigh > their prevCommit → synthesize "calls $delta"
   //   - else → synthesize "checks"
   // Append at end-of-street so PT4 reads it as the closing action.
-  // Skip synthesis if only one (or zero) players survive — hand is effectively
-  // over and the lone survivor doesn't need to "check" their own win.
+  // v0.2.10: synthesize missing actions by COMMIT-LEVEL, not "did the seat
+  // appear in any action". A player who bet then got raised but never explicitly
+  // called (frame drop) still has commit < currentHigh — they need a synthetic
+  // call. Previous logic skipped them because they had a prior action.
   if (alivePastStreet && alivePastStreet.size > 1) {
     for (const survivorSeat of alivePastStreet) {
-      if (actedThisStreet.has(survivorSeat)) continue;
-      // Skip blind-only acks (their blind line already counts as "action")
-      // but only on preflop. Still synthesize their explicit call/check if
-      // currentHigh advanced.
       const seat = hand.seats.find(s => s.seat === survivorSeat);
       if (!seat) continue;
       const name = resolveName(seat.guid, hand);
-      const prevCommit = playerCommit.get(survivorSeat) || 0;
-      if (currentHigh > prevCommit) {
-        const delta = currentHigh - prevCommit;
+      const seatCommit = playerCommit.get(survivorSeat) || 0;
+      if (currentHigh > seatCommit) {
+        // Survivor owes money — synthesize the call.
+        const delta = currentHigh - seatCommit;
         lines.push(`${name}: calls ${fmt(delta)}`);
         playerCommit.set(survivorSeat, currentHigh);
         if (lastAggressor && survivorSeat !== lastAggressor) callersAfterAggression++;
-      } else if (street !== 'preflop' || !(survivorSeat === hand.sbSeat || survivorSeat === hand.bbSeat || survivorSeat === hand.straddleSeat)) {
-        // On preflop, the BB/straddler checking their option is normal; don't
-        // emit a synthetic check for blind/straddle posters already at currentHigh.
-        lines.push(`${name}: checks`);
+      } else if (!actedThisStreet.has(survivorSeat)) {
+        // Already at currentHigh AND no action seen — synthesize a check,
+        // except on preflop for SB/BB/straddler whose blind line counts as
+        // their action already.
+        if (street !== 'preflop' || !(survivorSeat === hand.sbSeat || survivorSeat === hand.bbSeat || survivorSeat === hand.straddleSeat)) {
+          lines.push(`${name}: checks`);
+        }
       }
     }
   }
