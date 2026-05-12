@@ -70,11 +70,21 @@ export function extractSnapshot(game) {
   for (let n = 1; n <= 10; n++) {
     const name = game['p' + n + 'name'];
     if (!name) continue;  // unoccupied seat
+    // v0.2.13: Hijack encodes folded state with an "F" prefix in pXbet
+    // (e.g., "F0", "F7", "F21" mean the player folded after committing $X).
+    // Without this we miss folds — particularly hero folds, since the
+    // GAME_PLAYER_FOLDS languageKey doesn't fire for every fold (Hijack
+    // sometimes consolidates).
+    const betRaw = game['p' + n + 'bet'];
+    const betStr = typeof betRaw === 'string' ? betRaw : String(betRaw || '');
+    const folded = betStr.startsWith('F');
+    const betNum = folded ? parseFloat(betStr.slice(1)) : parseFloat(betStr);
     seats.push({
       seat: n,
       guid: name,
       stack: parseFloat(game['p' + n + 'pot']) || 0,
-      bet: parseFloat(game['p' + n + 'bet']) || 0,
+      bet: betNum || 0,
+      folded,
       lbet: parseFloat(game['p' + n + 'lbet']) || 0,
       betDisplay: parseFloat(game['p' + n + 'BetDisplay']) || 0,
       action: game['p' + n + 'action'] || '',

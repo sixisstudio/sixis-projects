@@ -268,11 +268,17 @@ export function renderHand(hand) {
         lines.push(`Seat ${s.seat}: ${name}${position} won (${hand.currencySign}${winPot.toFixed(2)})`);
       }
     } else {
+      // v0.2.13: check if the seat folded — if so, render "folded …" and
+      // don't leak their cards (especially hero's hole cards on a preflop fold).
+      const seatFolded = ['preflop','flop','turn','river'].some(st =>
+        (hand.streets[st] || []).some(a => a.kind === 'action' && a.action === 'fold' && a.seat === s.seat)
+      );
       const cards = (s.seat === hand.hero.seat && hand.hero.cards.length)
         ? hand.hero.cards
         : (hand.villainReveals[s.seat] || []);
-      const folded = !cards.length || hand.ended === 'fold-around';
-      if (cards.length) {
+      if (seatFolded) {
+        lines.push(`Seat ${s.seat}: ${name}${position} folded ${describeFoldStreet(hand, s.seat)}`);
+      } else if (cards.length) {
         const psCards = hjkArrayToPS(cards);
         lines.push(`Seat ${s.seat}: ${name}${position} mucked [${psCards.join(' ')}]`);
       } else {

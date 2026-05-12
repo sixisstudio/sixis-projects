@@ -133,6 +133,26 @@ export class TableState {
       this.onAction(ev);
     }
 
+    // v0.2.13: detect newly-folded seats by diffing the per-seat `folded`
+    // flag (parsed from the F-prefix of pXbet). The GAME_PLAYER_FOLDS
+    // languageKey doesn't fire for every fold — particularly hero folds
+    // sometimes get rolled into a consolidated fold event with a different
+    // lastplayer. The F-prefix is authoritative.
+    const prevFolded = new Set();
+    if (prev) for (const s of prev.seats) if (s.folded) prevFolded.add(s.seat);
+    for (const s of snap.seats) {
+      if (s.folded && !prevFolded.has(s.seat)) {
+        // Newly folded — inject a fold action on the current street
+        // (only if we haven't already recorded it via the languageKey path)
+        const street = this._currentStreet();
+        const streetActs = (this.currentHand && this.currentHand.streets[street]) || [];
+        const alreadyFolded = streetActs.some(a => a.kind === 'action' && a.action === 'fold' && a.seat === s.seat);
+        if (!alreadyFolded) {
+          this._applyActionEvent(snap, { kind: 'action', action: 'fold', seat: s.seat });
+        }
+      }
+    }
+
     // Detect street transition by board-card delta (fallback if no GAME_MSG_DEAL_X)
     // v0.2.6: when the board jumps multiple streets at once (e.g., all-in →
     // dealer runs out 5 cards in one snap), open EACH skipped street so the
