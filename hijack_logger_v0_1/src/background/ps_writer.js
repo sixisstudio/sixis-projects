@@ -212,12 +212,22 @@ export function renderHand(hand) {
       hand._winnerShares[w] = winPot;
       lines.push(`${name} collected ${hand.currencySign}${winPot.toFixed(2)} from pot`);
     }
-  } else if (hand.ended === 'fold-around' && hand._computedCalledPot && hand._computedUncalled) {
-    // Fold-around with the uncalled winner — pot goes to the aggressor.
-    // The uncalled-bet line already returned the excess; whatever's left
-    // (blinds + earlier-street calls) is the winning collection.
-    // hand.winners may be empty in this case; infer from lastAggressor.
-    // (Skipped if winners are set — handled by the showdown branch above.)
+  } else if (hand.ended === 'fold-around' && hand.winners && hand.winners.length) {
+    // v0.2.11: emit collect line for fold-around winners (no SHOW DOWN header).
+    // PT4 needs an explicit "collected from pot" line to balance the pot —
+    // otherwise it complains "Invalid pot size (0.00 vs pot: $X)".
+    const distributable = hand._computedCalledPot != null ? hand._computedCalledPot : (hand.pot || 0);
+    const shares = splitPotCents(distributable, hand.winners.length);
+    hand._winnerShares = {};
+    for (let i = 0; i < hand.winners.length; i++) {
+      const w = hand.winners[i];
+      const seat = hand.seats.find(s => s.seat === w);
+      if (!seat) continue;
+      const name = resolveName(seat.guid, hand);
+      const winPot = shares[i];
+      hand._winnerShares[w] = winPot;
+      lines.push(`${name} collected ${hand.currencySign}${winPot.toFixed(2)} from pot`);
+    }
   }
 
   // ─── *** SUMMARY *** ────────────────────────────────────────────
@@ -507,6 +517,17 @@ function computeAlivePastStreet(hand, street) {
   if (hand.hero && hand.hero.seat && hand.hero.cards && hand.hero.cards.length) {
     alive.add(hand.hero.seat);
   }
+  // v0.2.11: remove any seat that folded on this OR an earlier street. Without
+  // this, the hero (whose hole cards are kept for the muck line) and any seat
+  // appearing in villainReveals would get synthesized post-fold calls.
+  const foldedBy = new Set();
+  const upTo = order.slice(0, idx + 1);
+  for (const s of upTo) {
+    for (const a of (hand.streets[s] || [])) {
+      if (a.kind === 'action' && a.action === 'fold') foldedBy.add(a.seat);
+    }
+  }
+  for (const f of foldedBy) alive.delete(f);
   return alive;
 }
 

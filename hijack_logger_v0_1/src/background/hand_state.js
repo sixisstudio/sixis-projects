@@ -335,9 +335,56 @@ export class TableState {
     if (!hand.pot && hand.lastPot) hand.pot = hand.lastPot;
 
     if (reason === 'gamenum_advance' && !hand.winners.length) {
-      // We never saw the showdown frame — possibly missing data
-      hand.degraded = true;
-      hand.degradedReason = 'no_explicit_finalize';
+      // v0.2.11: synthesize a winner if no explicit showdown frame fired.
+      // The last non-folded seat is the winner (everyone else folded).
+      const folded = new Set();
+      for (const street of ['preflop','flop','turn','river']) {
+        for (const a of (hand.streets[street] || [])) {
+          if (a.kind === 'action' && a.action === 'fold') folded.add(a.seat);
+        }
+      }
+      const survivors = hand.seats.map(s => s.seat).filter(s => !folded.has(s));
+      if (survivors.length === 1) {
+        hand.winners = [survivors[0]];
+      } else if (survivors.length === 0) {
+        // Misdeal — mark degraded
+        hand.degraded = true;
+        hand.degradedReason = 'no_explicit_finalize';
+      }
+      // If multiple survivors with no showdown, still degraded (can't know who won)
+      if (!hand.winners.length) {
+        hand.degraded = true;
+        hand.degradedReason = 'no_explicit_finalize';
+      }
+    }
+
+    // v0.2.11: bump zero-stack seats up to at least their final commit so PT4
+    // doesn't reject "bet $X with zero stack". Hijack reports stack=0 on
+    // hand-start frame for players whose rebuy hasn't completed yet.
+    const finalCommits = new Map();
+    for (const street of ['preflop','flop','turn','river']) {
+      let streetCurrentHigh = 0;
+      let streetCommits = new Map();
+      if (street === 'preflop') {
+        if (hand.sbSeat && hand.sb) streetCommits.set(hand.sbSeat, hand.sb);
+        if (hand.bbSeat && hand.bb) streetCommits.set(hand.bbSeat, hand.bb);
+        if (hand.straddleSeat && hand.straddle) streetCommits.set(hand.straddleSeat, hand.straddle);
+        streetCurrentHigh = Math.max(hand.bb || 0, hand.straddle || 0);
+      }
+      for (const a of (hand.streets[street] || [])) {
+        if (a.kind !== 'action') continue;
+        if (a.action === 'bet') { streetCurrentHigh = a.amount; streetCommits.set(a.seat, a.amount); }
+        else if (a.action === 'raise') { streetCurrentHigh = a.amount; streetCommits.set(a.seat, a.amount); }
+        else if (a.action === 'call') { streetCommits.set(a.seat, streetCurrentHigh); }
+        else if (a.action === 'allin') { streetCommits.set(a.seat, Math.max(streetCommits.get(a.seat) || 0, a.amount)); if (a.amount > streetCurrentHigh) streetCurrentHigh = a.amount; }
+      }
+      for (const [seat, c] of streetCommits) {
+        finalCommits.set(seat, (finalCommits.get(seat) || 0) + c);
+      }
+    }
+    for (const s of hand.seats) {
+      const commit = finalCommits.get(s.seat) || 0;
+      if (commit > s.stack) s.stack = commit;
     }
 
     // Attach name map snapshot for the writer to use
