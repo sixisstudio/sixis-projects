@@ -13,6 +13,18 @@ import { hjkToPS, hjkArrayToPS, parseWinString } from '../lib/card_codec.js';
  * @returns {string} — PokerStars HH text, terminated with two newlines (PS separator)
  */
 export function renderHand(hand) {
+  // v0.2.14: skip hands with no usable data — single-frame captures where
+  // the relay dropped everything after DEALER_BUTTON. Returning empty string
+  // causes the replay script to omit the hand from the .txt entirely.
+  const hasAnyAction = ['preflop','flop','turn','river'].some(s =>
+    (hand.streets[s] || []).some(a => a.kind === 'action')
+  );
+  const hasHeroCards = hand.hero && hand.hero.cards && hand.hero.cards.length > 0;
+  const hasWinners = hand.winners && hand.winners.length > 0;
+  if (!hasAnyAction && !hasHeroCards && !hasWinners) {
+    return '';
+  }
+
   const lines = [];
 
   // ─── Header ─────────────────────────────────────────────────────

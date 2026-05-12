@@ -152,6 +152,21 @@ async function handleHandComplete(tabId, gameID, hand) {
   tab.hands++;
   state.totals.handsCompleted++;
 
+  // v0.2.14: skip writing hands with no usable data (e.g., a single
+  // DEALER_BUTTON frame arrived and then nothing else — the relay missed
+  // every subsequent frame). Writing them just produces "Invalid pot size
+  // (0.00 vs pot $X)" rejections in PT4 with no signal value.
+  const hasAnyAction = ['preflop','flop','turn','river'].some(s =>
+    (hand.streets[s] || []).some(a => a.kind === 'action')
+  );
+  const hasHeroCards = hand.hero && hand.hero.cards && hand.hero.cards.length > 0;
+  const hasWinners = hand.winners && hand.winners.length > 0;
+  if (!hasAnyAction && !hasHeroCards && !hasWinners) {
+    console.warn(`[hjk] skipping hand ${hand.handNo}: no actions, no hero cards, no winners — relay dropped all frames`);
+    chrome.storage.local.set({ totals: state.totals }).catch(() => {});
+    return;
+  }
+
   try {
     const text = renderHand(hand);
     console.log(`[hjk] rendered hand ${hand.handNo}: ${text.length} chars; writing to disk...`);
@@ -351,4 +366,4 @@ function handlePopupMessage(msg, sender, sendResponse) {
   }
 })();
 
-console.log('[hjk] service worker booted v0.2.13');
+console.log('[hjk] service worker booted v0.2.14');
