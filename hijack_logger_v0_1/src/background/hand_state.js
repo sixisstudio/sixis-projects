@@ -201,6 +201,8 @@ export class TableState {
       sbSeat: computed.sb,    // refined when GAME_PLAYER_SMALL_BLIND fires
       bb: snap.bb,             // refined when GAME_PLAYER_BIG_BLIND fires
       sb: defaultSBCents / 100, // refined when GAME_PLAYER_SMALL_BLIND fires
+      straddleSeat: null,      // v0.2.9: set when GAME_PLAYER_BIG_BLIND fires for straddler
+      straddle: 0,
       blindLevels: snap.blindLevels,
       gameType: snap.gameTypeDisplayName,
       currencySign: snap.currencySign,
@@ -249,6 +251,7 @@ export class TableState {
       case 'blind':
         if (ev.type === 'sb') { hand.sbSeat = ev.seat; hand.sb = ev.amount; }
         if (ev.type === 'bb') { hand.bbSeat = ev.seat; hand.bb = ev.amount; }
+        if (ev.type === 'straddle') { hand.straddleSeat = ev.seat; hand.straddle = ev.amount; }
         hand.streets.preflop.push({
           kind: 'blind', type: ev.type, seat: ev.seat, amount: ev.amount,
         });

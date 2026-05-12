@@ -81,7 +81,11 @@ export function renderHand(hand) {
     const seat = hand.seats.find(s => s.seat === b.seat);
     if (!seat) continue;
     const name = resolveName(seat.guid, hand);
-    const blindName = b.type === 'sb' ? 'small blind' : (b.type === 'bb' ? 'big blind' : 'ante');
+    let blindName;
+    if (b.type === 'sb') blindName = 'small blind';
+    else if (b.type === 'bb') blindName = 'big blind';
+    else if (b.type === 'straddle') blindName = 'the straddle';
+    else blindName = 'ante';
     lines.push(`${name}: posts ${blindName} ${hand.currencySign}${b.amount.toFixed(2)}`);
   }
 
@@ -285,9 +289,12 @@ function renderStreetActions(lines, hand, street, alivePastStreet) {
   const actedThisStreet = new Set();      // seats that appear in this street's actions
   const foldedThisStreet = new Set();     // subset that folded
   if (street === 'preflop') {
-    currentHigh = hand.bb || 0;
+    // v0.2.9: when a straddle exists, currentHigh starts at the straddle amount
+    // (not BB), and the straddler's commit is preloaded too.
+    currentHigh = Math.max(hand.bb || 0, hand.straddle || 0);
     if (hand.sbSeat && hand.sb) playerCommit.set(hand.sbSeat, hand.sb);
     if (hand.bbSeat && hand.bb) playerCommit.set(hand.bbSeat, hand.bb);
+    if (hand.straddleSeat && hand.straddle) playerCommit.set(hand.straddleSeat, hand.straddle);
   }
   const cs = hand.currencySign;
   const fmt = (n) => `${cs}${(n || 0).toFixed(2)}`;
@@ -394,9 +401,9 @@ function renderStreetActions(lines, hand, street, alivePastStreet) {
         lines.push(`${name}: calls ${fmt(delta)}`);
         playerCommit.set(survivorSeat, currentHigh);
         if (lastAggressor && survivorSeat !== lastAggressor) callersAfterAggression++;
-      } else if (street !== 'preflop' || !(survivorSeat === hand.sbSeat || survivorSeat === hand.bbSeat)) {
-        // On preflop, the BB checking their option is normal; don't emit if
-        // they were already at currentHigh as the blind.
+      } else if (street !== 'preflop' || !(survivorSeat === hand.sbSeat || survivorSeat === hand.bbSeat || survivorSeat === hand.straddleSeat)) {
+        // On preflop, the BB/straddler checking their option is normal; don't
+        // emit a synthetic check for blind/straddle posters already at currentHigh.
         lines.push(`${name}: checks`);
       }
     }

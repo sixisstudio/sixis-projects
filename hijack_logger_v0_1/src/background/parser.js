@@ -187,6 +187,17 @@ export function deriveActionEvent(snap, prevSnap) {
 
     case 'GAME_PLAYER_BIG_BLIND': {
       const [bbSeat, bbAmount] = parseLastBet(snap.lastbet);
+      // v0.2.9: Hijack reuses GAME_PLAYER_BIG_BLIND for the straddle when one
+      // exists. `hasStraddle` format: '<flag>|<seat>'. If flag=1 and the
+      // lastbet seat matches the straddle seat, this is the straddle, not BB.
+      // (The actual BB posts implicitly — pXbet just increments to snap.bb
+      // without a separate languageKey event. We synthesize the BB line later.)
+      const straddleParts = (snap.hasStraddle || '').split('|');
+      const straddleFlag = straddleParts[0] === '1';
+      const straddleSeat = parseInt(straddleParts[1], 10) || 0;
+      if (straddleFlag && bbSeat && bbSeat === straddleSeat) {
+        return { kind: 'blind', type: 'straddle', seat: bbSeat, amount: bbAmount };
+      }
       return { kind: 'blind', type: 'bb', seat: bbSeat || snap.lastplayer, amount: bbAmount };
     }
 
