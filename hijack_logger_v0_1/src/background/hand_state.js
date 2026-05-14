@@ -292,7 +292,16 @@ export class TableState {
         hand.sb = 0;
         hand.sbSeat = null;
         break;
-      case 'blind':
+      case 'blind': {
+        // v0.2.26: dedupe blind events. Hijack sometimes re-fires the same
+        // GAME_PLAYER_BIG_BLIND/SMALL_BLIND event in consecutive frames for
+        // the same seat. Both got pushed to preflop, causing PT4 to count
+        // the blind twice (e.g., hand #196794 showed "posts big blind $10"
+        // twice → off-by-BB pot mismatch).
+        const dup = (hand.streets.preflop || []).some(a =>
+          a.kind === 'blind' && a.type === ev.type && a.seat === ev.seat
+        );
+        if (dup) break;
         if (ev.type === 'sb') { hand.sbSeat = ev.seat; hand.sb = ev.amount; }
         if (ev.type === 'bb') { hand.bbSeat = ev.seat; hand.bb = ev.amount; }
         if (ev.type === 'straddle') { hand.straddleSeat = ev.seat; hand.straddle = ev.amount; }
@@ -300,6 +309,7 @@ export class TableState {
           kind: 'blind', type: ev.type, seat: ev.seat, amount: ev.amount,
         });
         break;
+      }
       case 'deal':
         // Hero cards will be detected separately via slot fill
         break;
