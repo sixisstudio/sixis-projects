@@ -361,6 +361,11 @@ function handlePopupMessage(msg, sender, sendResponse) {
       // .sendMessage strips FSA-handle methods). This message just notifies the
       // SW that the change happened so it can refresh in-memory state.
       console.log('[hjk] output directory changed to', msg.name);
+      // v0.2.32: permission is fresh — drain any pending failed writes.
+      sessionWriter.drainPending().then(r => {
+        if (r.drained > 0) console.log(`[hjk] post-regrant drain: wrote ${r.drained} queued hands (${r.remaining} still pending)`);
+      }).catch(() => {});
+      rawWriter.flushAll().catch(() => {});
       sendResponse({ ok: true });
       return true;
     }
@@ -411,4 +416,4 @@ function handlePopupMessage(msg, sender, sendResponse) {
   }
 })();
 
-console.log('[hjk] service worker booted v0.2.31');
+console.log('[hjk] service worker booted v0.2.32');

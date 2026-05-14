@@ -121,14 +121,23 @@ export class RawSidecarWriter {
     const sess = this.sessions.get(key);
     if (!sess || sess.buffer.length === 0) return;
     const lines = sess.buffer.map(f => JSON.stringify(f)).join('\n') + '\n';
+    // v0.2.32: keep a copy of the buffer so we can restore on failure.
+    // Previously failed flushes dropped frames silently.
+    const buffered = sess.buffer;
     sess.buffer = [];
     sess.lastFlushAt = Date.now();
     try {
       await appendToSessionFile(sess.filename, lines);
     } catch (e) {
-      // Re-queue on failure (cap buffer to avoid unbounded memory)
-      // For v1: just log and drop
-      console.warn('[hjk] raw sidecar flush failed:', e.message);
+      // Restore buffered frames at the FRONT (preserve any new frames pushed
+      // since the flush started).
+      sess.buffer = buffered.concat(sess.buffer);
+      // Cap to avoid unbounded growth if permission is never restored.
+      const MAX_BUFFER = sess.maxBufferSize || 50000;
+      if (sess.buffer.length > MAX_BUFFER) {
+        sess.buffer = sess.buffer.slice(-MAX_BUFFER);
+      }
+      console.warn(`[hjk] raw sidecar flush failed: ${e.message} — ${buffered.length} frames re-queued (buffer=${sess.buffer.length})`);
     }
   }
 

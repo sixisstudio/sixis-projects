@@ -166,6 +166,11 @@ export class SessionWriter {
   constructor() {
     this.sessions = new Map();  // key: `${tabId}:${gameID}` → { filename, startedAt, sessionSeq, lastWriteAt, handsWritten }
     this.errorCounts = new Map();  // key → consecutive error count
+    // v0.2.32: hold failed-write hands in memory; retry on next successful
+    // write or on output_dir_changed event. Caps at MAX_PENDING to avoid
+    // unbounded memory if permission is never restored.
+    this.pendingWrites = [];
+    this.MAX_PENDING = 2000;
   }
 
   _key(tabId, gameID) { return `${tabId}:${gameID}`; }
@@ -199,6 +204,14 @@ export class SessionWriter {
    */
   async writeHand(tabId, gameID, sessionStartedAt, handText) {
     const sess = this.ensureSession(tabId, gameID, sessionStartedAt);
+
+    // v0.2.32: opportunistically drain any queued failed writes first.
+    // If permission is now granted, this catches up on backlog before
+    // appending the new hand.
+    if (this.pendingWrites.length > 0) {
+      await this.drainPending();
+    }
+
     try {
       await appendToSessionFile(sess.filename, handText);
       sess.handsWritten++;
@@ -209,9 +222,42 @@ export class SessionWriter {
       const key = this._key(tabId, gameID);
       const errs = (this.errorCounts.get(key) || 0) + 1;
       this.errorCounts.set(key, errs);
-      return { ok: false, error: e.message, consecutiveErrors: errs };
+      // v0.2.32: queue the hand for later retry if the failure looks
+      // permission-related. Once user re-picks the folder, drainPending()
+      // will write it.
+      const recoverable = /perm=prompt|User activation|requestPermission/i.test(e.message || '');
+      if (recoverable && this.pendingWrites.length < this.MAX_PENDING) {
+        this.pendingWrites.push({ filename: sess.filename, text: handText, queuedAt: Date.now() });
+        console.warn(`[hjk] hand queued for retry (pending=${this.pendingWrites.length})`);
+      }
+      return { ok: false, error: e.message, consecutiveErrors: errs, queued: recoverable };
     }
   }
+
+  /**
+   * v0.2.32: retry all pending writes (called on output_dir_changed message
+   * from popup, or opportunistically on next successful writeHand).
+   */
+  async drainPending() {
+    if (this.pendingWrites.length === 0) return { drained: 0, remaining: 0 };
+    const queue = this.pendingWrites;
+    this.pendingWrites = [];
+    let drained = 0;
+    for (const item of queue) {
+      try {
+        await appendToSessionFile(item.filename, item.text);
+        drained++;
+      } catch (e) {
+        // Permission still bad — restore the rest of the queue
+        this.pendingWrites.push(item, ...queue.slice(queue.indexOf(item) + 1));
+        break;
+      }
+    }
+    if (drained > 0) console.log(`[hjk] drainPending: wrote ${drained} queued hands, ${this.pendingWrites.length} still pending`);
+    return { drained, remaining: this.pendingWrites.length };
+  }
+
+  pendingCount() { return this.pendingWrites.length; }
 
   /**
    * Close a session — called when the tab closes.
