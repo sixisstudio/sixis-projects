@@ -158,18 +158,17 @@ export function renderHand(hand) {
 
   // v0.2.23: track the position where each street's actions END, so we can
   // insert the "Uncalled bet" line RIGHT AFTER the street with the uncalled
-  // aggression (not after all streets). PT4 was double-subtracting the
-  // uncalled because the line appeared after the river-runout synthetic
-  // checks instead of immediately after the aggression-street's actions.
-  let lastStreetUncalled = null;
-  let uncalledInsertPosition = -1;
+  // aggression (not after all streets).
+  // v0.2.27: collect ALL uncalled bets across streets (a hand can have multiple
+  // if a bettor's bet is folded around AND a later street has another uncalled).
+  const uncalledEvents = [];  // [{position, line, amount}]
 
   // ─── Preflop actions (non-blind) ────────────────────────────────
   const preflopResult = renderStreetActions(lines, hand, 'preflop', aliveSets.preflop, startingStackBySeat, cumulativeBySeat);
   let cumulativeContributed = preflopResult.totalContributed;
-  if (preflopResult.uncalled > 0) {
-    lastStreetUncalled = preflopResult;
-    uncalledInsertPosition = lines.length;
+  if (preflopResult.uncalled > 0 && preflopResult.uncalledSeat) {
+    const s = hand.seats.find(s => s.seat === preflopResult.uncalledSeat);
+    if (s) uncalledEvents.push({ position: lines.length, line: `Uncalled bet (${hand.currencySign}${preflopResult.uncalled.toFixed(2)}) returned to ${resolveName(s.guid, hand)}`, amount: preflopResult.uncalled });
   }
 
   // v0.2.25: if everyone folded preflop except the implicit BB winner
@@ -185,9 +184,9 @@ export function renderHand(hand) {
     lines.push(`*** FLOP *** [${flopCards.join(' ')}]`);
     flopResult = renderStreetActions(lines, hand, 'flop', aliveSets.flop, startingStackBySeat, cumulativeBySeat);
     cumulativeContributed += flopResult.totalContributed;
-    if (flopResult.uncalled > 0) {
-      lastStreetUncalled = flopResult;
-      uncalledInsertPosition = lines.length;
+    if (flopResult.uncalled > 0 && flopResult.uncalledSeat) {
+      const s = hand.seats.find(s => s.seat === flopResult.uncalledSeat);
+      if (s) uncalledEvents.push({ position: lines.length, line: `Uncalled bet (${hand.currencySign}${flopResult.uncalled.toFixed(2)}) returned to ${resolveName(s.guid, hand)}`, amount: flopResult.uncalled });
     }
   }
 
@@ -199,9 +198,9 @@ export function renderHand(hand) {
     lines.push(`*** TURN *** [${flopCards.join(' ')}] [${turnCard}]`);
     turnResult = renderStreetActions(lines, hand, 'turn', aliveSets.turn, startingStackBySeat, cumulativeBySeat);
     cumulativeContributed += turnResult.totalContributed;
-    if (turnResult.uncalled > 0) {
-      lastStreetUncalled = turnResult;
-      uncalledInsertPosition = lines.length;
+    if (turnResult.uncalled > 0 && turnResult.uncalledSeat) {
+      const s = hand.seats.find(s => s.seat === turnResult.uncalledSeat);
+      if (s) uncalledEvents.push({ position: lines.length, line: `Uncalled bet (${hand.currencySign}${turnResult.uncalled.toFixed(2)}) returned to ${resolveName(s.guid, hand)}`, amount: turnResult.uncalled });
     }
   }
 
@@ -214,24 +213,19 @@ export function renderHand(hand) {
     lines.push(`*** RIVER *** [${flopCards.join(' ')}] [${turnCard}] [${riverCard}]`);
     riverResult = renderStreetActions(lines, hand, 'river', aliveSets.river, startingStackBySeat, cumulativeBySeat);
     cumulativeContributed += riverResult.totalContributed;
-    if (riverResult.uncalled > 0) {
-      lastStreetUncalled = riverResult;
-      uncalledInsertPosition = lines.length;
+    if (riverResult.uncalled > 0 && riverResult.uncalledSeat) {
+      const s = hand.seats.find(s => s.seat === riverResult.uncalledSeat);
+      if (s) uncalledEvents.push({ position: lines.length, line: `Uncalled bet (${hand.currencySign}${riverResult.uncalled.toFixed(2)}) returned to ${resolveName(s.guid, hand)}`, amount: riverResult.uncalled });
     }
   }
 
-  // v0.2.23: insert "Uncalled bet" line at the position right after the
-  // street where the uncalled aggression occurred (PokerStars convention).
+  // v0.2.27: insert ALL "Uncalled bet" lines at their correct street positions.
+  // Iterate in reverse so earlier-position splices don't shift later positions.
   let uncalledTotal = 0;
-  if (lastStreetUncalled && lastStreetUncalled.uncalled > 0 && lastStreetUncalled.uncalledSeat && uncalledInsertPosition >= 0) {
-    const seat = hand.seats.find(s => s.seat === lastStreetUncalled.uncalledSeat);
-    if (seat) {
-      const name = resolveName(seat.guid, hand);
-      const uncalledLine = `Uncalled bet (${hand.currencySign}${lastStreetUncalled.uncalled.toFixed(2)}) returned to ${name}`;
-      lines.splice(uncalledInsertPosition, 0, uncalledLine);
-      uncalledTotal = lastStreetUncalled.uncalled;
-    }
+  for (let i = uncalledEvents.length - 1; i >= 0; i--) {
+    lines.splice(uncalledEvents[i].position, 0, uncalledEvents[i].line);
   }
+  for (const ev of uncalledEvents) uncalledTotal += ev.amount;
 
   // Compute the CALLED pot — what we'll report as Total pot
   const calledPot = Math.max(0, cumulativeContributed - uncalledTotal);
