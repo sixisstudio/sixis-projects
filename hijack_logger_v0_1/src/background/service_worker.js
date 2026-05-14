@@ -140,24 +140,9 @@ async function handleHandComplete(tabId, gameID, hand) {
     state.totals.spectatorHands = (state.totals.spectatorHands || 0) + 1;
   }
 
-  const check = runHandHeuristics(hand);
-  const degraded = !check.ok || hand.degraded;
-  if (degraded) {
-    hand.degraded = true;
-    hand.degradedReason = (hand.degradedReason ? hand.degradedReason + ';' : '') + check.reasons.join(',');
-    tab.degraded++;
-    state.totals.degradedHands++;
-    // v0.2.31: log the explicit reason so users can see what tripped the flag.
-    console.warn(`[hjk] hand ${hand.handNo} DEGRADED: reason=${hand.degradedReason}`);
-  }
-  tab.drift.recordHand(degraded);
-  tab.hands++;
-  state.totals.handsCompleted++;
-
-  // v0.2.14: skip writing hands with no usable data (e.g., a single
-  // DEALER_BUTTON frame arrived and then nothing else — the relay missed
-  // every subsequent frame). Writing them just produces "Invalid pot size
-  // (0.00 vs pot $X)" rejections in PT4 with no signal value.
+  // v0.2.33: do skip-checks FIRST. Hands we don't write shouldn't count
+  // toward either "hands captured" or "degraded" — they're not part of the
+  // user-facing dataset at all.
   const hasAnyAction = ['preflop','flop','turn','river'].some(s =>
     (hand.streets[s] || []).some(a => a.kind === 'action')
   );
@@ -165,15 +150,35 @@ async function handleHandComplete(tabId, gameID, hand) {
   const hasWinners = hand.winners && hand.winners.length > 0;
   if (!hasAnyAction && !hasHeroCards && !hasWinners) {
     console.warn(`[hjk] skipping hand ${hand.handNo}: no actions, no hero cards, no winners — relay dropped all frames`);
-    chrome.storage.local.set({ totals: state.totals }).catch(() => {});
     return;
   }
-  // v0.2.16: skip hands we joined mid-progress.
   if (hand.joinedMidHand) {
     console.warn(`[hjk] skipping hand ${hand.handNo}: joined mid-hand, action data incomplete`);
-    chrome.storage.local.set({ totals: state.totals }).catch(() => {});
     return;
   }
+
+  // Only NOW do we count this as a real hand and check heuristics.
+  const heroPlayed = hasHeroCards;
+  if (heroPlayed) {
+    tab.handsPlayed = (tab.handsPlayed || 0) + 1;
+    state.totals.handsPlayed = (state.totals.handsPlayed || 0) + 1;
+  } else {
+    tab.spectatorHands = (tab.spectatorHands || 0) + 1;
+    state.totals.spectatorHands = (state.totals.spectatorHands || 0) + 1;
+  }
+
+  const check = runHandHeuristics(hand);
+  const degraded = !check.ok || hand.degraded;
+  if (degraded) {
+    hand.degraded = true;
+    hand.degradedReason = (hand.degradedReason ? hand.degradedReason + ';' : '') + check.reasons.join(',');
+    tab.degraded++;
+    state.totals.degradedHands++;
+    console.warn(`[hjk] hand ${hand.handNo} DEGRADED: reason=${hand.degradedReason}`);
+  }
+  tab.drift.recordHand(degraded);
+  tab.hands++;
+  state.totals.handsCompleted++;
 
   try {
     const text = renderHand(hand);
@@ -416,4 +421,4 @@ function handlePopupMessage(msg, sender, sendResponse) {
   }
 })();
 
-console.log('[hjk] service worker booted v0.2.32');
+console.log('[hjk] service worker booted v0.2.33');
