@@ -275,11 +275,11 @@ export function renderHand(hand) {
 
   // ─── *** SUMMARY *** ────────────────────────────────────────────
   lines.push('*** SUMMARY ***');
-  // v0.2.21: Total pot must be the GROSS contributed (cumulativeContributed)
-  // BEFORE uncalled-bet subtraction. PT4 reads "Total pot" as gross and
-  // subtracts the "Uncalled bet (X) returned" line itself to compute the
-  // called pot. If we report net here, PT4 double-subtracts and rejects.
-  const reportedPot = cumulativeContributed != null ? cumulativeContributed : (hand.pot || 0);
+  // v0.2.22: revert to calledPot for "Total pot". v0.2.21's gross-pot change
+  // didn't help — PT4 ignores the Total pot header and computes its own pot
+  // from actions, comparing to collect lines. Revert restores PokerStars
+  // convention (Total pot = called pot, after uncalled-bet subtraction).
+  const reportedPot = hand._computedCalledPot != null ? hand._computedCalledPot : (hand.pot || 0);
   lines.push(`Total pot ${hand.currencySign}${reportedPot.toFixed(2)} | Rake ${hand.currencySign}${(hand.rake || 0).toFixed(2)}`);
 
   // Board (only if at least flop dealt)
