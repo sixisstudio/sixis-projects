@@ -475,8 +475,10 @@ export class TableState {
         // For a single-winner fold-around, take only the top.
         // (Chop pot can't happen without a showdown frame.)
         hand.winners = [candidates[0].seat];
-        hand.degraded = true;
-        hand.degradedReason = (hand.degradedReason ? hand.degradedReason + ';' : '') + 'winner_inferred';
+        // v0.2.30: do NOT flag degraded for inferred winners. Hijack often
+        // doesn't send a clean showdown frame for fold-arounds — the inference
+        // is just normal operation, not a data problem. Marking these
+        // degraded inflated the popup counter misleadingly. The hand is fine.
       }
     }
 
