@@ -248,12 +248,12 @@ export function renderHand(hand) {
       const psCards = hjkArrayToPS(hand.hero.cards);
       lines.push(`${heroName}: shows [${psCards.join(' ')}]`);
     }
-    // Pot collections — use computed called-pot, not Hijack's snap.totalPot.
-    // v0.2.6: split the pot in integer cents so the sum matches the reported
-    // pot exactly. Odd chips go to the FIRST winner (PokerStars convention:
-    // first seat clockwise from button gets the odd chip). Prevents the
-    // "Invalid pot size $2.49 vs $2.50" rounding error PT4 throws on 3-way
-    // checkdowns where pot doesn't divide evenly.
+    // Pot collections.
+    // v0.2.19: winner identification comes from Hijack's potwinShares (only
+    // seats with potwin > 0 actually collect). But the amount they collect
+    // is the CALLED pot, split evenly. Hijack's potwin amount itself is
+    // GROSS (includes the winner's own uncalled refund) so we can't use it
+    // directly for the "collected from pot" line.
     const distributable = hand._computedCalledPot || hand.pot || 0;
     const shares = splitPotCents(distributable, hand.winners.length);
     hand._winnerShares = {};
@@ -268,8 +268,6 @@ export function renderHand(hand) {
     }
   } else if (hand.ended === 'fold-around' && hand.winners && hand.winners.length) {
     // v0.2.11: emit collect line for fold-around winners (no SHOW DOWN header).
-    // PT4 needs an explicit "collected from pot" line to balance the pot —
-    // otherwise it complains "Invalid pot size (0.00 vs pot: $X)".
     const distributable = hand._computedCalledPot != null ? hand._computedCalledPot : (hand.pot || 0);
     const shares = splitPotCents(distributable, hand.winners.length);
     hand._winnerShares = {};

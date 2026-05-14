@@ -365,13 +365,31 @@ export class TableState {
     const hand = this.currentHand;
     hand.state = STATE.SHOWDOWN;
     hand.ended = 'showdown';
-    hand.winners = (snap.winner || '').split(',').map(s => parseInt(s, 10)).filter(Boolean);
+    // v0.2.19: Hijack's `winner` field is a RANKED list (winner first, then
+    // runners-up shown at showdown). It's NOT a chop CSV. Use pXpotwin to
+    // determine the actual money-winning seats — only seats with potwin > 0
+    // actually collect from the pot.
+    const potWinners = [];
+    const shares = {};
+    for (const s of snap.seats) {
+      if (s.potwin && s.potwin > 0) {
+        potWinners.push(s.seat);
+        shares[s.seat] = s.potwin;
+      }
+    }
+    if (potWinners.length > 0) {
+      hand.winners = potWinners;
+      hand.potwinShares = shares;
+    } else {
+      // Fallback: no potwin data — assume single winner from `winner` field's first slot.
+      const ranked = (snap.winner || '').split(',').map(s => parseInt(s, 10)).filter(Boolean);
+      hand.winners = ranked.length ? [ranked[0]] : [];
+    }
     hand.winningHands = snap.wins.filter(Boolean).map((w, i) => ({
       cards: w, type: snap.winTypes[i] || 'win',
     }));
     hand.pots = snap.pots.slice();
     hand.pot = snap.totalPot || snap.pot;
-    // Don't finalize yet — wait for hand to "settle" (next gameNo, or timeout)
   }
 
   _finalizeHand(reason) {
