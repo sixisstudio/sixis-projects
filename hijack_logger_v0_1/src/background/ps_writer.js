@@ -29,6 +29,13 @@ export function renderHand(hand) {
   if (hand.joinedMidHand) {
     return '';
   }
+  // v0.2.17: skip hands where no blinds were posted (canceled hands / misdeals).
+  // PT4 emits "Big Blind not posted" warnings for these.
+  const hasAnyBlind = (hand.streets.preflop || []).some(a => a.kind === 'blind')
+    || (hand.bbSeat && hand.bb > 0) || (hand.sbSeat && hand.sb > 0);
+  if (!hasAnyBlind && !hasWinners) {
+    return '';
+  }
 
   const lines = [];
 
@@ -475,9 +482,17 @@ function renderStreetActions(lines, hand, street, alivePastStreet, startingStack
       const seatCommit = playerCommit.get(survivorSeat) || 0;
       if (currentHigh > seatCommit) {
         // Survivor owes money — synthesize the call.
+        // v0.2.17: also apply remaining-stack cap so a synthesized call doesn't
+        // exceed the seat's stack (PT4 "Invalid stack" rejection).
         const delta = currentHigh - seatCommit;
-        lines.push(`${name}: calls ${fmt(delta)}`);
-        playerCommit.set(survivorSeat, currentHigh);
+        const rem = remaining(survivorSeat);
+        if (delta > rem && rem > 0) {
+          lines.push(`${name}: calls ${fmt(rem)} and is all-in`);
+          playerCommit.set(survivorSeat, seatCommit + rem);
+        } else {
+          lines.push(`${name}: calls ${fmt(delta)}`);
+          playerCommit.set(survivorSeat, currentHigh);
+        }
         if (lastAggressor && survivorSeat !== lastAggressor) callersAfterAggression++;
       } else if (!actedThisStreet.has(survivorSeat)) {
         // Already at currentHigh AND no action seen — synthesize a check,

@@ -67,21 +67,23 @@ for (const inputFile of inputs) {
     return entry;
   }
 
-  // Stream-read the file line by line (memory-friendly for 50MB files)
-  const data = fs.readFileSync(inputFile, 'utf-8');
-  const lines = data.split('\n');
+  // Stream-read line by line (memory-friendly for files >512MB)
+  const readline = await import('readline');
+  const rl = readline.createInterface({
+    input: fs.createReadStream(inputFile, { encoding: 'utf-8' }),
+    crlfDelay: Infinity,
+  });
   let frameCount = 0;
   let gotOmahaCount = 0;
   let parseErrors = 0;
 
-  for (const line of lines) {
+  for await (const line of rl) {
     if (!line.trim()) continue;
     let frame;
     try { frame = JSON.parse(line); }
     catch (e) { parseErrors++; continue; }
     frameCount++;
 
-    // Only inbound game-ws frames
     if (frame.dir !== 'in') continue;
     if (!frame.data || frame.data.type !== 'string') continue;
     if (!frame.url || !frame.url.includes('game-ws.hijackpoker.com')) continue;
@@ -111,13 +113,16 @@ for (const inputFile of inputs) {
   allHands.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0) || (a.handNo || 0) - (b.handNo || 0));
 
   const text = allHands.map(renderHand).join('');
-  fs.writeFileSync(replayOutput, text);
-
   const gameIDs = Array.from(perTable.keys()).join(', ');
   console.log(`  frames: ${frameCount}, gotOmaha: ${gotOmahaCount}, parse-errors: ${parseErrors}`);
   console.log(`  tables: ${gameIDs}`);
   console.log(`  hands rendered: ${allHands.length}`);
-  console.log(`  output: ${replayOutput} (${text.length} bytes)`);
+  if (text.length === 0) {
+    console.log(`  output: SKIPPED (all hands filtered — mid-hand-joins or data-starved)`);
+  } else {
+    fs.writeFileSync(replayOutput, text);
+    console.log(`  output: ${replayOutput} (${text.length} bytes)`);
+  }
 }
 
 console.log('\nDone.');

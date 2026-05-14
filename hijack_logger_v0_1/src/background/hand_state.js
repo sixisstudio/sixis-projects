@@ -436,6 +436,38 @@ export class TableState {
       if (commit > s.stack) s.stack = commit;
     }
 
+    // v0.2.17: infer winner when no explicit showdown frame fired.
+    // Strategy: among seats NOT explicitly folded with a positive commit,
+    // pick the one with the highest commit. Ties broken by latest non-fold
+    // action. Handles fold-around-to-BB and "everyone-folds-mid-action"
+    // scenarios where the relay missed the winner declaration.
+    if (!hand.winners.length) {
+      const explicitFolded = new Set();
+      const lastActionPos = new Map();
+      ['preflop','flop','turn','river'].forEach((s, si) => {
+        (hand.streets[s] || []).forEach((a, ai) => {
+          if (a.kind !== 'action') return;
+          if (a.action === 'fold') explicitFolded.add(a.seat);
+          else lastActionPos.set(a.seat, si * 10000 + ai);
+        });
+      });
+      const candidates = [];
+      for (const [seat, commit] of finalCommits) {
+        if (!explicitFolded.has(seat) && commit > 0) candidates.push({ seat, commit });
+      }
+      if (candidates.length >= 1) {
+        candidates.sort((a, b) => {
+          if (b.commit !== a.commit) return b.commit - a.commit;
+          return (lastActionPos.get(b.seat) || 0) - (lastActionPos.get(a.seat) || 0);
+        });
+        // For a single-winner fold-around, take only the top.
+        // (Chop pot can't happen without a showdown frame.)
+        hand.winners = [candidates[0].seat];
+        hand.degraded = true;
+        hand.degradedReason = (hand.degradedReason ? hand.degradedReason + ';' : '') + 'winner_inferred';
+      }
+    }
+
     // Attach name map snapshot for the writer to use
     hand.nameMap = Object.fromEntries(this.nameMap);
     // Stamp finalized hero seat (in case it was resolved late)
