@@ -201,7 +201,44 @@ async function handleHandComplete(tabId, gameID, hand) {
   chrome.storage.local.set({ totals: state.totals }).catch(() => {});
 }
 
-// ─── Message router ──────────────────────────────────────────────
+// ─── Port-based relay (v0.2.29) ─────────────────────────────────
+// Long-lived ports prevent the message drops we saw with sendMessage.
+// The content-script relay opens a 'hjk-relay' port at startup; we handle
+// all per-frame traffic over it. Popup messages still use sendMessage (one-off).
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'hjk-relay') return;
+  const tabId = port.sender && port.sender.tab && port.sender.tab.id;
+  if (!tabId) return;
+  port.onMessage.addListener((msg) => {
+    if (!msg || msg[RELAY_NS] !== 1) return;
+    dispatchRelayMessage(tabId, msg);
+  });
+});
+
+// Shared dispatcher used by both the port handler and the legacy sendMessage
+// path (kept for backward-compat with older relay.js if someone hasn't reloaded).
+function dispatchRelayMessage(tabId, msg) {
+  const tab = ensureTab(tabId);
+  switch (msg.kind) {
+    case 'proxy_installed': tab.proxyInstalledAt = Date.now(); break;
+    case 'relay_loaded': tab.relayLoadedAt = Date.now(); break;
+    case 'socket_open': break;
+    case 'frame': {
+      tab.frames++;
+      state.totals.frames++;
+      processFrame(tabId, msg).catch(e => console.warn('[hjk] processFrame:', e.message));
+      break;
+    }
+    case 'relay_drops':
+      console.warn('[hjk] relay dropped', msg.count, 'frames');
+      break;
+  }
+  if (state.totals.frames % 200 === 0) {
+    chrome.storage.local.set({ totals: state.totals }).catch(() => {});
+  }
+}
+
+// ─── Message router (popup + legacy relay fallback) ─────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return false;
 
@@ -210,7 +247,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return handlePopupMessage(msg, sender, sendResponse);
   }
 
-  // Page proxy messages
+  // Page proxy messages (legacy sendMessage path — relay.js v0.2.28 and earlier)
   const tabId = sender.tab && sender.tab.id;
   if (!tabId) return false;
   const tab = ensureTab(tabId);
@@ -372,4 +409,4 @@ function handlePopupMessage(msg, sender, sendResponse) {
   }
 })();
 
-console.log('[hjk] service worker booted v0.2.28');
+console.log('[hjk] service worker booted v0.2.29');
