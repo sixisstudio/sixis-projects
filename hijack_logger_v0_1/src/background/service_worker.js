@@ -166,6 +166,12 @@ async function handleHandComplete(tabId, gameID, hand) {
     chrome.storage.local.set({ totals: state.totals }).catch(() => {});
     return;
   }
+  // v0.2.16: skip hands we joined mid-progress.
+  if (hand.joinedMidHand) {
+    console.warn(`[hjk] skipping hand ${hand.handNo}: joined mid-hand, action data incomplete`);
+    chrome.storage.local.set({ totals: state.totals }).catch(() => {});
+    return;
+  }
 
   try {
     const text = renderHand(hand);
@@ -366,4 +372,4 @@ function handlePopupMessage(msg, sender, sendResponse) {
   }
 })();
 
-console.log('[hjk] service worker booted v0.2.15');
+console.log('[hjk] service worker booted v0.2.16');

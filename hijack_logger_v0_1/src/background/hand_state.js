@@ -194,6 +194,20 @@ export class TableState {
   _startHand(snap) {
     // Capture initial table state — seats, stacks, button, blinds
     this.heroSeat = 0;
+    // v0.2.16: detect when we joined a hand mid-progress. The first frame for
+    // a new gameNo should be one of the hand-start languageKeys. Anything else
+    // means action already happened before we tuned in — data is unreliable.
+    const startLks = new Set([
+      'GAME_MSG_DEALER_BUTTON', 'GAME_PLAYER_SMALL_BLIND', 'GAME_PLAYER_BIG_BLIND',
+      'DEAD_SB', 'GAME_MSG_DEAL_CARDS', 'GAME_STARTING',
+    ]);
+    const boardRealCount = (snap.board || []).filter(c => c && c !== 'facedown').length;
+    const anySeatFolded = snap.seats.some(s => s.folded);
+    const joinedMidHand = (
+      boardRealCount > 0 ||
+      anySeatFolded ||
+      (snap.languageKey && !startLks.has(snap.languageKey) && snap.languageKey !== '')
+    );
     // v0.2.3: default SB to floor(BB/2) via integer-cents math (avoids the
     // (bb/2).toFixed(2) rounding bug for BB=$0.05 -> "$0.03"). If we later
     // see GAME_PLAYER_SMALL_BLIND, hand.sb gets overwritten with the actual
@@ -224,6 +238,9 @@ export class TableState {
       straddleSeat: null,      // v0.2.9: set when GAME_PLAYER_BIG_BLIND fires for straddler
       straddle: 0,
       blindLevels: snap.blindLevels,
+      stakeSB: snap.stakeSB || (defaultSBCents / 100),  // v0.2.16: canonical header SB
+      stakeBB: snap.stakeBB || snap.bb,                 // v0.2.16: canonical header BB
+      joinedMidHand,                                    // v0.2.16
       gameType: snap.gameTypeDisplayName,
       currencySign: snap.currencySign,
       seats: this._snapshotSeats(snap),

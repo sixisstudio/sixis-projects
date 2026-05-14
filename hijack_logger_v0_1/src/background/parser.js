@@ -121,6 +121,12 @@ export function extractSnapshot(game) {
     game: game.game,                                    // "omaha"
     blindLevels: game.blindLevels,                      // "$0.02 / $0.05 PLO"
     bb: parseFloat(game.bb) || 0,
+    // v0.2.16: authoritative table-stake SB/BB parsed from blindLevels.
+    // game.bb sometimes lags or holds a straddle amount; this string is the
+    // canonical $X / $Y label Hijack shows in the lobby. Used for the .txt
+    // stake header so it doesn't jitter between hands of the same session.
+    stakeSB: parseFloat((String(game.blindLevels || '').match(/\$([\d.]+)\s*\/\s*\$[\d.]+/) || [,0])[1]) || 0,
+    stakeBB: parseFloat((String(game.blindLevels || '').match(/\$[\d.]+\s*\/\s*\$([\d.]+)/) || [,0])[1]) || 0,
     cardCount: parseInt(game.cardCount, 10) || 4,
     currencySign: game.currencySign || '$',
 

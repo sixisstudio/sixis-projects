@@ -24,6 +24,11 @@ export function renderHand(hand) {
   if (!hasAnyAction && !hasHeroCards && !hasWinners) {
     return '';
   }
+  // v0.2.16: skip hands we joined after they were already in progress —
+  // partial action data produces misleading hand histories.
+  if (hand.joinedMidHand) {
+    return '';
+  }
 
   const lines = [];
 
@@ -32,7 +37,12 @@ export function renderHand(hand) {
   const gameDescription = hand.gameType === 'PLO'
     ? 'Omaha Pot Limit'
     : 'Omaha Pot Limit';  // TODO: handle non-PLO variants if ever in scope
-  const stakeDisplay = `(${hand.currencySign}${hand.sb.toFixed(2)}/${hand.currencySign}${hand.bb.toFixed(2)} USD)`;
+  // v0.2.16: use canonical stake from blindLevels for the header, not the
+  // possibly-jittered hand.sb/hand.bb (which can read 0 on DEAD_SB or carry
+  // the straddle amount). Falls back to hand.sb/bb if blindLevels missing.
+  const headerSB = (hand.stakeSB > 0 ? hand.stakeSB : hand.sb) || 0;
+  const headerBB = (hand.stakeBB > 0 ? hand.stakeBB : hand.bb) || 0;
+  const stakeDisplay = `(${hand.currencySign}${headerSB.toFixed(2)}/${hand.currencySign}${headerBB.toFixed(2)} USD)`;
   lines.push(`PokerStars Hand #${hand.handNo}: ${gameDescription} ${stakeDisplay} - ${handDate}`);
 
   // Table line: max seats inferred from highest occupied seat (round up to 6 / 9 / 10)
@@ -526,10 +536,12 @@ function renderStreetActions(lines, hand, street, alivePastStreet, startingStack
 }
 
 function resolveName(guid, hand) {
+  // v0.2.16: ALWAYS use GUID-derived placeholder. Chat-resolved displayNames
+  // are intentionally disabled because the same player rendered as
+  // "Player_U2cwI8Pu" early in a session and "gregfrater" after their first
+  // chat message would split into two distinct players in PT4's database.
+  // Sticking to GUID-prefix keeps identity stable across all hands.
   if (!guid) return 'Unknown';
-  const nameMap = hand.nameMap || {};
-  if (nameMap[guid]) return nameMap[guid];
-  // Fallback: Player_<short-guid>
   return 'Player_' + guid.slice(0, 8);
 }
 
