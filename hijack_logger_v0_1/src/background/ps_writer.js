@@ -156,13 +156,21 @@ export function renderHand(hand) {
   // v0.2.18: use originalStack (pre-bump) for all-in detection.
   for (const s of hand.seats) startingStackBySeat.set(s.seat, s.originalStack !== undefined ? s.originalStack : s.stack);
 
+  // v0.2.23: track the position where each street's actions END, so we can
+  // insert the "Uncalled bet" line RIGHT AFTER the street with the uncalled
+  // aggression (not after all streets). PT4 was double-subtracting the
+  // uncalled because the line appeared after the river-runout synthetic
+  // checks instead of immediately after the aggression-street's actions.
+  let lastStreetUncalled = null;
+  let uncalledInsertPosition = -1;
+
   // ─── Preflop actions (non-blind) ────────────────────────────────
   const preflopResult = renderStreetActions(lines, hand, 'preflop', aliveSets.preflop, startingStackBySeat, cumulativeBySeat);
   let cumulativeContributed = preflopResult.totalContributed;
-  // v0.2.7: track the MOST-RECENT street that had an uncalled aggression,
-  // not just the last street processed. A later street with no aggression
-  // would otherwise overwrite an earlier uncalled-bet into a no-op.
-  let lastStreetUncalled = preflopResult.uncalled > 0 ? preflopResult : null;
+  if (preflopResult.uncalled > 0) {
+    lastStreetUncalled = preflopResult;
+    uncalledInsertPosition = lines.length;
+  }
 
   // ─── Flop ──────────────────────────────────────────────────────
   let flopResult = null;
@@ -171,7 +179,10 @@ export function renderHand(hand) {
     lines.push(`*** FLOP *** [${flopCards.join(' ')}]`);
     flopResult = renderStreetActions(lines, hand, 'flop', aliveSets.flop, startingStackBySeat, cumulativeBySeat);
     cumulativeContributed += flopResult.totalContributed;
-    if (flopResult.uncalled > 0) lastStreetUncalled = flopResult;
+    if (flopResult.uncalled > 0) {
+      lastStreetUncalled = flopResult;
+      uncalledInsertPosition = lines.length;
+    }
   }
 
   // ─── Turn ──────────────────────────────────────────────────────
@@ -182,7 +193,10 @@ export function renderHand(hand) {
     lines.push(`*** TURN *** [${flopCards.join(' ')}] [${turnCard}]`);
     turnResult = renderStreetActions(lines, hand, 'turn', aliveSets.turn, startingStackBySeat, cumulativeBySeat);
     cumulativeContributed += turnResult.totalContributed;
-    if (turnResult.uncalled > 0) lastStreetUncalled = turnResult;
+    if (turnResult.uncalled > 0) {
+      lastStreetUncalled = turnResult;
+      uncalledInsertPosition = lines.length;
+    }
   }
 
   // ─── River ─────────────────────────────────────────────────────
@@ -194,19 +208,21 @@ export function renderHand(hand) {
     lines.push(`*** RIVER *** [${flopCards.join(' ')}] [${turnCard}] [${riverCard}]`);
     riverResult = renderStreetActions(lines, hand, 'river', aliveSets.river, startingStackBySeat, cumulativeBySeat);
     cumulativeContributed += riverResult.totalContributed;
-    if (riverResult.uncalled > 0) lastStreetUncalled = riverResult;
+    if (riverResult.uncalled > 0) {
+      lastStreetUncalled = riverResult;
+      uncalledInsertPosition = lines.length;
+    }
   }
 
-  // v0.2.5: emit "Uncalled bet" line for the LAST street that had an uncalled
-  // aggression. PokerStars convention: if a player makes the final bet/raise
-  // and no one calls, the excess is returned. PT4/HM3 subtract this from the
-  // pot total to compute the actual called pot.
+  // v0.2.23: insert "Uncalled bet" line at the position right after the
+  // street where the uncalled aggression occurred (PokerStars convention).
   let uncalledTotal = 0;
-  if (lastStreetUncalled && lastStreetUncalled.uncalled > 0 && lastStreetUncalled.uncalledSeat) {
+  if (lastStreetUncalled && lastStreetUncalled.uncalled > 0 && lastStreetUncalled.uncalledSeat && uncalledInsertPosition >= 0) {
     const seat = hand.seats.find(s => s.seat === lastStreetUncalled.uncalledSeat);
     if (seat) {
       const name = resolveName(seat.guid, hand);
-      lines.push(`Uncalled bet (${hand.currencySign}${lastStreetUncalled.uncalled.toFixed(2)}) returned to ${name}`);
+      const uncalledLine = `Uncalled bet (${hand.currencySign}${lastStreetUncalled.uncalled.toFixed(2)}) returned to ${name}`;
+      lines.splice(uncalledInsertPosition, 0, uncalledLine);
       uncalledTotal = lastStreetUncalled.uncalled;
     }
   }
