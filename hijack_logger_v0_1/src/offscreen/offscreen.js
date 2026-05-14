@@ -23,15 +23,13 @@ let cachedHandle = null;
       const perm = await handle.queryPermission({ mode: 'readwrite' });
       console.log(`[hjk-offscreen] boot: recovered handle from IDB, name=${handle.name}, perm=${perm}`);
       if (perm === 'prompt') {
-        // We can call requestPermission from offscreen context since it has a
-        // DOM. May still need user gesture in some Chrome versions; if it
-        // fails, we'll surface that on first write attempt.
-        try {
-          const granted = await handle.requestPermission({ mode: 'readwrite' });
-          console.log(`[hjk-offscreen] boot: requestPermission returned '${granted}'`);
-        } catch (e) {
-          console.warn(`[hjk-offscreen] boot: requestPermission threw: ${e.message}`);
-        }
+        // v0.2.28: don't call requestPermission here. It requires user
+        // activation (a recent click), which the offscreen document never
+        // has — it has no UI. Chrome would always throw "User activation
+        // is required". The popup's Change-folder button is the canonical
+        // re-grant path; writes will fail silently until the user clicks
+        // there. (Previously this logged a noisy warning on every boot.)
+        console.log(`[hjk-offscreen] boot: handle permission is 'prompt'; user must click 'Change' in popup to re-grant`);
       }
     } else {
       console.log('[hjk-offscreen] boot: no usable handle in IDB');
