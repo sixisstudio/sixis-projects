@@ -372,4 +372,4 @@ function handlePopupMessage(msg, sender, sendResponse) {
   }
 })();
 
-console.log('[hjk] service worker booted v0.2.23');
+console.log('[hjk] service worker booted v0.2.24');

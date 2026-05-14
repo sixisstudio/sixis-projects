@@ -257,35 +257,41 @@ export function renderHand(hand) {
     }
     // Pot collections.
     // v0.2.19: winner identification comes from Hijack's potwinShares (only
-    // seats with potwin > 0 actually collect). But the amount they collect
-    // is the CALLED pot, split evenly. Hijack's potwin amount itself is
-    // GROSS (includes the winner's own uncalled refund) so we can't use it
-    // directly for the "collected from pot" line.
-    const distributable = hand._computedCalledPot || hand.pot || 0;
-    const shares = splitPotCents(distributable, hand.winners.length);
-    hand._winnerShares = {};
-    for (let i = 0; i < hand.winners.length; i++) {
-      const w = hand.winners[i];
-      const seat = hand.seats.find(s => s.seat === w);
-      if (!seat) continue;
-      const name = resolveName(seat.guid, hand);
-      const winPot = shares[i];
-      hand._winnerShares[w] = winPot;
-      lines.push(`${name} collected ${hand.currencySign}${winPot.toFixed(2)} from pot`);
+    // seats with potwin > 0 actually collect). The amount they collect is
+    // the CALLED pot, split evenly.
+    // v0.2.24: if called pot is $0 (everything returned uncalled — e.g.,
+    // BB walks fold-around), don't emit any collect line. The winner got
+    // their money back via the Uncalled bet line, no pot to collect.
+    const distributable = hand._computedCalledPot != null ? hand._computedCalledPot : (hand.pot || 0);
+    if (distributable > 0) {
+      const shares = splitPotCents(distributable, hand.winners.length);
+      hand._winnerShares = {};
+      for (let i = 0; i < hand.winners.length; i++) {
+        const w = hand.winners[i];
+        const seat = hand.seats.find(s => s.seat === w);
+        if (!seat) continue;
+        const name = resolveName(seat.guid, hand);
+        const winPot = shares[i];
+        hand._winnerShares[w] = winPot;
+        lines.push(`${name} collected ${hand.currencySign}${winPot.toFixed(2)} from pot`);
+      }
     }
+    // v0.2.24: if distributable === 0, skip collect emission (BB walks).
   } else if (hand.ended === 'fold-around' && hand.winners && hand.winners.length) {
     // v0.2.11: emit collect line for fold-around winners (no SHOW DOWN header).
     const distributable = hand._computedCalledPot != null ? hand._computedCalledPot : (hand.pot || 0);
-    const shares = splitPotCents(distributable, hand.winners.length);
-    hand._winnerShares = {};
-    for (let i = 0; i < hand.winners.length; i++) {
-      const w = hand.winners[i];
-      const seat = hand.seats.find(s => s.seat === w);
-      if (!seat) continue;
-      const name = resolveName(seat.guid, hand);
-      const winPot = shares[i];
-      hand._winnerShares[w] = winPot;
-      lines.push(`${name} collected ${hand.currencySign}${winPot.toFixed(2)} from pot`);
+    if (distributable > 0) {
+      const shares = splitPotCents(distributable, hand.winners.length);
+      hand._winnerShares = {};
+      for (let i = 0; i < hand.winners.length; i++) {
+        const w = hand.winners[i];
+        const seat = hand.seats.find(s => s.seat === w);
+        if (!seat) continue;
+        const name = resolveName(seat.guid, hand);
+        const winPot = shares[i];
+        hand._winnerShares[w] = winPot;
+        lines.push(`${name} collected ${hand.currencySign}${winPot.toFixed(2)} from pot`);
+      }
     }
   }
 
@@ -549,18 +555,24 @@ function renderStreetActions(lines, hand, street, alivePastStreet, startingStack
       uncalled = aggressorCommit - secondHigh;
       uncalledSeat = lastAggressor;
     }
-  } else if (street === 'preflop' && !lastAggressor && hand.bbSeat && hand.bb) {
-    // v0.2.8: fold-around-to-BB. No one raised; BB's overpost gets returned.
-    // The "aggressor" is implicitly the BB.
-    const bbCommit = playerCommit.get(hand.bbSeat) || 0;
-    let secondHigh = 0;
+  } else if (street === 'preflop' && !lastAggressor) {
+    // v0.2.24: fold-around to the highest forced bet (BB or straddler). When
+    // no one voluntarily aggressed, the seat with the highest forced commit
+    // wins, and their excess over second-highest is uncalled.
+    let topSeat = null, topCommit = 0;
     for (const [seat, commit] of playerCommit) {
-      if (seat === hand.bbSeat) continue;
-      if (commit > secondHigh) secondHigh = commit;
+      if (commit > topCommit) { topCommit = commit; topSeat = seat; }
     }
-    if (bbCommit > secondHigh) {
-      uncalled = bbCommit - secondHigh;
-      uncalledSeat = hand.bbSeat;
+    if (topSeat != null) {
+      let secondHigh = 0;
+      for (const [seat, commit] of playerCommit) {
+        if (seat === topSeat) continue;
+        if (commit > secondHigh) secondHigh = commit;
+      }
+      if (topCommit > secondHigh) {
+        uncalled = topCommit - secondHigh;
+        uncalledSeat = topSeat;
+      }
     }
   }
 
