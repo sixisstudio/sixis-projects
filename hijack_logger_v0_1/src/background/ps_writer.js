@@ -35,11 +35,23 @@ export function renderHand(hand) {
   if (!hasAnyBlind && !hasWinners) {
     return '';
   }
-  // v0.2.18: skip hands where blinds exist but no winner could be inferred —
-  // PT4 rejects as "pot $X / winnings $0". Happens when SB+BB both fold
-  // (relay data weird) and no one has skin in the game who didn't fold.
+  // v0.2.18: skip hands where blinds exist but no winner could be inferred.
   if (!hasWinners && hasAnyBlind) {
     return '';
+  }
+  // v0.2.18: skip hands where the declared winner has NO participation
+  // (didn't post a blind/straddle, didn't take any action). Hijack
+  // occasionally awards a fold-around pot to an idle seat — PT4 rejects
+  // because the seat has $0 commit and no action.
+  if (hand.winners && hand.winners.length === 1) {
+    const w = hand.winners[0];
+    const isBlindPoster = w === hand.sbSeat || w === hand.bbSeat || w === hand.straddleSeat;
+    const hasOwnAction = ['preflop','flop','turn','river'].some(s =>
+      (hand.streets[s] || []).some(a => a.kind === 'action' && a.seat === w)
+    );
+    if (!isBlindPoster && !hasOwnAction) {
+      return '';
+    }
   }
 
   const lines = [];
