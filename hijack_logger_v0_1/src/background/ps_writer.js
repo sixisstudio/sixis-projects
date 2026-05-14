@@ -427,10 +427,8 @@ function renderStreetActions(lines, hand, street, alivePastStreet, startingStack
         }
         // v0.2.15: if call would exceed remaining stack, cap and mark all-in.
         const rem = remaining(a.seat);
-        // v0.2.25: skip actions from seats already all-in (rem === 0).
-        if (rem === 0 && prevCommit > 0) {
-          break;
-        }
+        // v0.2.25: skip actions from seats already all-in.
+        if (rem === 0) break;
         if (delta > rem && rem > 0) {
           lines.push(`${name}: calls ${fmt(rem)} and is all-in`);
           playerCommit.set(a.seat, prevCommit + rem);
