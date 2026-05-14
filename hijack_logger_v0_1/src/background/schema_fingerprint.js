@@ -145,7 +145,10 @@ export function runHandHeuristics(hand) {
   // Showdown sanity
   if (hand.ended === 'showdown') {
     if (!hand.winners || hand.winners.length === 0) reasons.push('showdown_no_winners');
-    if (!hand.winningHands || hand.winningHands.length === 0) reasons.push('showdown_no_handstrings');
+    // v0.2.34: don't flag missing winningHands — Hijack frequently omits
+    // hand-strength strings (win1..win9) on spectator-mode captures even
+    // though winners and cards reconcile fine. PT4/HM3 don't need them.
+    // Was over-flagging ~60% of spectator hands as degraded.
   }
 
   // Board card count consistency with street progression
