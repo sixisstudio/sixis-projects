@@ -123,8 +123,15 @@ export function renderHand(hand) {
     river: computeAlivePastStreet(hand, 'river'),
   };
 
+  // v0.2.15: per-seat cumulative commit across streets — used to detect
+  // when a call/bet would exceed a seat's stack and should be rendered as
+  // "and is all-in". PT4 rejects hands where commit > stack as "Invalid stack".
+  const cumulativeBySeat = new Map();
+  const startingStackBySeat = new Map();
+  for (const s of hand.seats) startingStackBySeat.set(s.seat, s.stack);
+
   // ─── Preflop actions (non-blind) ────────────────────────────────
-  const preflopResult = renderStreetActions(lines, hand, 'preflop', aliveSets.preflop);
+  const preflopResult = renderStreetActions(lines, hand, 'preflop', aliveSets.preflop, startingStackBySeat, cumulativeBySeat);
   let cumulativeContributed = preflopResult.totalContributed;
   // v0.2.7: track the MOST-RECENT street that had an uncalled aggression,
   // not just the last street processed. A later street with no aggression
@@ -136,7 +143,7 @@ export function renderHand(hand) {
   if (hand.board.flop && hand.board.flop.length === 3) {
     const flopCards = hjkArrayToPS(hand.board.flop);
     lines.push(`*** FLOP *** [${flopCards.join(' ')}]`);
-    flopResult = renderStreetActions(lines, hand, 'flop', aliveSets.flop);
+    flopResult = renderStreetActions(lines, hand, 'flop', aliveSets.flop, startingStackBySeat, cumulativeBySeat);
     cumulativeContributed += flopResult.totalContributed;
     if (flopResult.uncalled > 0) lastStreetUncalled = flopResult;
   }
@@ -147,7 +154,7 @@ export function renderHand(hand) {
     const turnCard = hjkToPS(hand.board.turn);
     const flopCards = hjkArrayToPS(hand.board.flop);
     lines.push(`*** TURN *** [${flopCards.join(' ')}] [${turnCard}]`);
-    turnResult = renderStreetActions(lines, hand, 'turn', aliveSets.turn);
+    turnResult = renderStreetActions(lines, hand, 'turn', aliveSets.turn, startingStackBySeat, cumulativeBySeat);
     cumulativeContributed += turnResult.totalContributed;
     if (turnResult.uncalled > 0) lastStreetUncalled = turnResult;
   }
@@ -159,7 +166,7 @@ export function renderHand(hand) {
     const flopCards = hjkArrayToPS(hand.board.flop);
     const turnCard = hjkToPS(hand.board.turn);
     lines.push(`*** RIVER *** [${flopCards.join(' ')}] [${turnCard}] [${riverCard}]`);
-    riverResult = renderStreetActions(lines, hand, 'river', aliveSets.river);
+    riverResult = renderStreetActions(lines, hand, 'river', aliveSets.river, startingStackBySeat, cumulativeBySeat);
     cumulativeContributed += riverResult.totalContributed;
     if (riverResult.uncalled > 0) lastStreetUncalled = riverResult;
   }
@@ -310,7 +317,7 @@ export function renderHand(hand) {
  *           uncalled, uncalledSeat } so the caller can emit Uncalled-bet lines
  * + a correct Total-pot summary.
  */
-function renderStreetActions(lines, hand, street, alivePastStreet) {
+function renderStreetActions(lines, hand, street, alivePastStreet, startingStackBySeat, cumulativeBySeat) {
   const actions = (hand.streets[street] || []).filter(a => a.kind === 'action');
   let currentHigh = 0;
   const playerCommit = new Map();
@@ -326,6 +333,16 @@ function renderStreetActions(lines, hand, street, alivePastStreet) {
   }
   const cs = hand.currencySign;
   const fmt = (n) => `${cs}${(n || 0).toFixed(2)}`;
+
+  // v0.2.15: helper — remaining stack for a seat at this street, accounting
+  // for prior-street commits AND prior-this-street commits.
+  const remaining = (seat) => {
+    if (!startingStackBySeat) return Infinity;
+    const start = startingStackBySeat.get(seat) || 0;
+    const priorStreets = (cumulativeBySeat && cumulativeBySeat.get(seat)) || 0;
+    const thisStreet = playerCommit.get(seat) || 0;
+    return Math.max(0, start - priorStreets - thisStreet);
+  };
 
   // v0.2.5: track the last aggressor (bettor/raiser) of the street so we can
   // detect an uncalled bet. After all actions are processed, if the last
@@ -350,12 +367,16 @@ function renderStreetActions(lines, hand, street, alivePastStreet) {
         break;
       case 'call': {
         const delta = Math.max(0, currentHigh - prevCommit);
-        // v0.2.7: skip $0 calls entirely on post-preflop streets. They're
-        // frame-echo artifacts: Hijack fires GAME_PLAYER_CALLS for a seat
-        // that already matched the high bet (often the bettor themselves
-        // right after their own bet). The seat is already in actedThisStreet
-        // from their real action; leave that in place. Don't emit anything.
+        // v0.2.7: skip $0 calls entirely on post-preflop streets (frame echo).
         if (delta === 0 && street !== 'preflop') {
+          break;
+        }
+        // v0.2.15: if call would exceed remaining stack, cap and mark all-in.
+        const rem = remaining(a.seat);
+        if (delta > rem && rem > 0) {
+          lines.push(`${name}: calls ${fmt(rem)} and is all-in`);
+          playerCommit.set(a.seat, prevCommit + rem);
+          if (lastAggressor && a.seat !== lastAggressor) callersAfterAggression++;
           break;
         }
         lines.push(`${name}: calls ${fmt(delta)}`);
@@ -364,19 +385,39 @@ function renderStreetActions(lines, hand, street, alivePastStreet) {
         break;
       }
       case 'bet': {
-        lines.push(`${name}: bets ${fmt(a.amount)}`);
-        currentHigh = a.amount || 0;
-        playerCommit.set(a.seat, a.amount || 0);
+        const rem = remaining(a.seat);
+        const amt = a.amount || 0;
+        if (amt > rem + prevCommit && rem > 0) {
+          // v0.2.15: bet exceeds stack — render as all-in for max remaining.
+          const actual = prevCommit + rem;
+          lines.push(`${name}: bets ${fmt(actual)} and is all-in`);
+          currentHigh = actual;
+          playerCommit.set(a.seat, actual);
+        } else {
+          lines.push(`${name}: bets ${fmt(amt)}`);
+          currentHigh = amt;
+          playerCommit.set(a.seat, amt);
+        }
         lastAggressor = a.seat;
         callersAfterAggression = 0;
         break;
       }
       case 'raise': {
         const newTotal = a.amount || 0;
-        const increment = Math.max(0, newTotal - currentHigh);
-        lines.push(`${name}: raises ${fmt(increment)} to ${fmt(newTotal)}`);
-        currentHigh = newTotal;
-        playerCommit.set(a.seat, newTotal);
+        const rem = remaining(a.seat);
+        if (newTotal > prevCommit + rem && rem > 0) {
+          // v0.2.15: raise exceeds stack — cap at all-in.
+          const actual = prevCommit + rem;
+          const inc = actual - currentHigh;
+          lines.push(`${name}: raises ${fmt(Math.max(0, inc))} to ${fmt(actual)} and is all-in`);
+          currentHigh = actual;
+          playerCommit.set(a.seat, actual);
+        } else {
+          const increment = Math.max(0, newTotal - currentHigh);
+          lines.push(`${name}: raises ${fmt(increment)} to ${fmt(newTotal)}`);
+          currentHigh = newTotal;
+          playerCommit.set(a.seat, newTotal);
+        }
         lastAggressor = a.seat;
         callersAfterAggression = 0;
         break;
@@ -472,6 +513,14 @@ function renderStreetActions(lines, hand, street, alivePastStreet) {
 
   let totalContributed = 0;
   for (const c of playerCommit.values()) totalContributed += c;
+
+  // v0.2.15: persist this street's commits into the cumulative map so the
+  // next street's remaining-stack calculation is correct.
+  if (cumulativeBySeat) {
+    for (const [seat, commit] of playerCommit) {
+      cumulativeBySeat.set(seat, (cumulativeBySeat.get(seat) || 0) + commit);
+    }
+  }
 
   return { totalContributed, playerCommit, uncalled, uncalledSeat };
 }

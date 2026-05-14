@@ -268,6 +268,13 @@ export class TableState {
         // Button move — usually fires at start; record but don't add to actions
         hand.buttonSeat = ev.seat;
         break;
+      case 'dead_sb':
+        // v0.2.15: dead small blind — no SB posted. Clear hand.sb so the
+        // writer doesn't synthesize a phantom SB line.
+        hand.deadSB = true;
+        hand.sb = 0;
+        hand.sbSeat = null;
+        break;
       case 'blind':
         if (ev.type === 'sb') { hand.sbSeat = ev.seat; hand.sb = ev.amount; }
         if (ev.type === 'bb') { hand.bbSeat = ev.seat; hand.bb = ev.amount; }

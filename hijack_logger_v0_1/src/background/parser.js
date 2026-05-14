@@ -190,6 +190,11 @@ export function deriveActionEvent(snap, prevSnap) {
     case 'GAME_MSG_DEALER_BUTTON':
       return { kind: 'button', seat: snap.dealerSeat };
 
+    case 'DEAD_SB':
+      // v0.2.15: dead small blind — the SB position is skipped this hand
+      // (player just sat down, sat out, etc.). No SB amount posted.
+      return { kind: 'dead_sb' };
+
     case 'GAME_PLAYER_SMALL_BLIND': {
       const [sbSeat, sbAmount] = parseLastBet(snap.lastbet);
       return { kind: 'blind', type: 'sb', seat: sbSeat || snap.lastplayer, amount: sbAmount };
