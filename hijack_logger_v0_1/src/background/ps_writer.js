@@ -30,10 +30,15 @@ export function renderHand(hand) {
     return '';
   }
   // v0.2.17: skip hands where no blinds were posted (canceled hands / misdeals).
-  // PT4 emits "Big Blind not posted" warnings for these.
   const hasAnyBlind = (hand.streets.preflop || []).some(a => a.kind === 'blind')
     || (hand.bbSeat && hand.bb > 0) || (hand.sbSeat && hand.sb > 0);
   if (!hasAnyBlind && !hasWinners) {
+    return '';
+  }
+  // v0.2.18: skip hands where blinds exist but no winner could be inferred —
+  // PT4 rejects as "pot $X / winnings $0". Happens when SB+BB both fold
+  // (relay data weird) and no one has skin in the game who didn't fold.
+  if (!hasWinners && hasAnyBlind) {
     return '';
   }
 
@@ -145,7 +150,8 @@ export function renderHand(hand) {
   // "and is all-in". PT4 rejects hands where commit > stack as "Invalid stack".
   const cumulativeBySeat = new Map();
   const startingStackBySeat = new Map();
-  for (const s of hand.seats) startingStackBySeat.set(s.seat, s.stack);
+  // v0.2.18: use originalStack (pre-bump) for all-in detection.
+  for (const s of hand.seats) startingStackBySeat.set(s.seat, s.originalStack !== undefined ? s.originalStack : s.stack);
 
   // ─── Preflop actions (non-blind) ────────────────────────────────
   const preflopResult = renderStreetActions(lines, hand, 'preflop', aliveSets.preflop, startingStackBySeat, cumulativeBySeat);
@@ -393,7 +399,10 @@ function renderStreetActions(lines, hand, street, alivePastStreet, startingStack
         if (delta > rem && rem > 0) {
           lines.push(`${name}: calls ${fmt(rem)} and is all-in`);
           playerCommit.set(a.seat, prevCommit + rem);
-          if (lastAggressor && a.seat !== lastAggressor) callersAfterAggression++;
+          // v0.2.18: do NOT increment callersAfterAggression here. An all-in
+          // for LESS than the bet doesn't fully match the aggressor — the
+          // unmatched portion needs to be returned as an uncalled bet, which
+          // end-of-street logic detects when callersAfterAggression === 0.
           break;
         }
         lines.push(`${name}: calls ${fmt(delta)}`);
@@ -482,18 +491,18 @@ function renderStreetActions(lines, hand, street, alivePastStreet, startingStack
       const seatCommit = playerCommit.get(survivorSeat) || 0;
       if (currentHigh > seatCommit) {
         // Survivor owes money — synthesize the call.
-        // v0.2.17: also apply remaining-stack cap so a synthesized call doesn't
-        // exceed the seat's stack (PT4 "Invalid stack" rejection).
         const delta = currentHigh - seatCommit;
         const rem = remaining(survivorSeat);
+        let isAllInForLess = false;
         if (delta > rem && rem > 0) {
           lines.push(`${name}: calls ${fmt(rem)} and is all-in`);
           playerCommit.set(survivorSeat, seatCommit + rem);
+          isAllInForLess = true;  // v0.2.18: unmatched portion will be returned via end-of-street uncalled-bet detection
         } else {
           lines.push(`${name}: calls ${fmt(delta)}`);
           playerCommit.set(survivorSeat, currentHigh);
         }
-        if (lastAggressor && survivorSeat !== lastAggressor) callersAfterAggression++;
+        if (!isAllInForLess && lastAggressor && survivorSeat !== lastAggressor) callersAfterAggression++;
       } else if (!actedThisStreet.has(survivorSeat)) {
         // Already at currentHigh AND no action seen — synthesize a check,
         // except on preflop for SB/BB/straddler whose blind line counts as

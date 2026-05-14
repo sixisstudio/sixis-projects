@@ -383,29 +383,9 @@ export class TableState {
     // Fall back to lastPot if showdown didn't fire
     if (!hand.pot && hand.lastPot) hand.pot = hand.lastPot;
 
-    if (reason === 'gamenum_advance' && !hand.winners.length) {
-      // v0.2.11: synthesize a winner if no explicit showdown frame fired.
-      // The last non-folded seat is the winner (everyone else folded).
-      const folded = new Set();
-      for (const street of ['preflop','flop','turn','river']) {
-        for (const a of (hand.streets[street] || [])) {
-          if (a.kind === 'action' && a.action === 'fold') folded.add(a.seat);
-        }
-      }
-      const survivors = hand.seats.map(s => s.seat).filter(s => !folded.has(s));
-      if (survivors.length === 1) {
-        hand.winners = [survivors[0]];
-      } else if (survivors.length === 0) {
-        // Misdeal — mark degraded
-        hand.degraded = true;
-        hand.degradedReason = 'no_explicit_finalize';
-      }
-      // If multiple survivors with no showdown, still degraded (can't know who won)
-      if (!hand.winners.length) {
-        hand.degraded = true;
-        hand.degradedReason = 'no_explicit_finalize';
-      }
-    }
+    // v0.2.18: lone-survivor inference deferred until after finalCommits is
+    // computed below (so we can gate on commit > 0). Don't pick a winner
+    // who never put money in the pot.
 
     // v0.2.11: bump zero-stack seats up to at least their final commit so PT4
     // doesn't reject "bet $X with zero stack". Hijack reports stack=0 on
@@ -432,6 +412,10 @@ export class TableState {
       }
     }
     for (const s of hand.seats) {
+      // v0.2.18: preserve original stack for all-in detection in the writer.
+      // The bump below makes PT4 happy with the seat-list line, but the
+      // writer's remaining()-based all-in cap needs the TRUE starting stack.
+      if (s.originalStack === undefined) s.originalStack = s.stack;
       const commit = finalCommits.get(s.seat) || 0;
       if (commit > s.stack) s.stack = commit;
     }
