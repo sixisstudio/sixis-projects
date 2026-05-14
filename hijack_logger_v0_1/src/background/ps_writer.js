@@ -121,16 +121,21 @@ export function renderHand(hand) {
     }
   }
 
-  // Then render any blind actions we DID see (in case both synthesis + actuals
-  // need to coexist, e.g., a late-joining player posting SB out of position)
-  for (const b of blindActions) {
+  // v0.2.20: emit blind lines in strict PokerStars order: SB → BB → Straddle.
+  // Hijack sometimes fires events out of order in straddle hands (BB before SB)
+  // which confuses PT4's blind-position interpretation. Sort by type rank.
+  const blindOrder = { sb: 0, bb: 1, straddle: 2 };
+  const sortedBlinds = blindActions.slice().sort((a, b) =>
+    (blindOrder[a.type] ?? 99) - (blindOrder[b.type] ?? 99)
+  );
+  for (const b of sortedBlinds) {
     const seat = hand.seats.find(s => s.seat === b.seat);
     if (!seat) continue;
     const name = resolveName(seat.guid, hand);
     let blindName;
     if (b.type === 'sb') blindName = 'small blind';
     else if (b.type === 'bb') blindName = 'big blind';
-    else if (b.type === 'straddle') blindName = 'the straddle';
+    else if (b.type === 'straddle') blindName = 'straddle';  // v0.2.20: drop "the"
     else blindName = 'ante';
     lines.push(`${name}: posts ${blindName} ${hand.currencySign}${b.amount.toFixed(2)}`);
   }
