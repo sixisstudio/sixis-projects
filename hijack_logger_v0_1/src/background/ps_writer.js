@@ -526,6 +526,8 @@ function renderStreetActions(lines, hand, street, alivePastStreet, startingStack
       if (!seat) continue;
       const name = resolveName(seat.guid, hand);
       const seatCommit = playerCommit.get(survivorSeat) || 0;
+      // v0.2.25: skip synthesis for seats already all-in on a prior street.
+      if (remaining(survivorSeat) === 0) continue;
       if (currentHigh > seatCommit) {
         // Survivor owes money — synthesize the call.
         const delta = currentHigh - seatCommit;
