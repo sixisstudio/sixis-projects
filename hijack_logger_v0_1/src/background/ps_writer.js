@@ -172,9 +172,15 @@ export function renderHand(hand) {
     uncalledInsertPosition = lines.length;
   }
 
+  // v0.2.25: if everyone folded preflop except the implicit BB winner
+  // (only one survivor past preflop), suppress flop/turn/river rendering.
+  // Hijack streams the runout cards anyway, and may emit phantom "bets $X"
+  // actions for the lone survivor which PT4 rejects.
+  const skipPostPreflopStreets = aliveSets.preflop.size <= 1;
+
   // ─── Flop ──────────────────────────────────────────────────────
   let flopResult = null;
-  if (hand.board.flop && hand.board.flop.length === 3) {
+  if (!skipPostPreflopStreets && hand.board.flop && hand.board.flop.length === 3) {
     const flopCards = hjkArrayToPS(hand.board.flop);
     lines.push(`*** FLOP *** [${flopCards.join(' ')}]`);
     flopResult = renderStreetActions(lines, hand, 'flop', aliveSets.flop, startingStackBySeat, cumulativeBySeat);
@@ -187,7 +193,7 @@ export function renderHand(hand) {
 
   // ─── Turn ──────────────────────────────────────────────────────
   let turnResult = null;
-  if (hand.board.turn && hand.board.turn !== 'facedown') {
+  if (!skipPostPreflopStreets && hand.board.turn && hand.board.turn !== 'facedown') {
     const turnCard = hjkToPS(hand.board.turn);
     const flopCards = hjkArrayToPS(hand.board.flop);
     lines.push(`*** TURN *** [${flopCards.join(' ')}] [${turnCard}]`);
@@ -201,7 +207,7 @@ export function renderHand(hand) {
 
   // ─── River ─────────────────────────────────────────────────────
   let riverResult = null;
-  if (hand.board.river && hand.board.river !== 'facedown') {
+  if (!skipPostPreflopStreets && hand.board.river && hand.board.river !== 'facedown') {
     const riverCard = hjkToPS(hand.board.river);
     const flopCards = hjkArrayToPS(hand.board.flop);
     const turnCard = hjkToPS(hand.board.turn);
@@ -415,12 +421,16 @@ function renderStreetActions(lines, hand, street, alivePastStreet, startingStack
         break;
       case 'call': {
         const delta = Math.max(0, currentHigh - prevCommit);
-        // v0.2.7: skip $0 calls entirely on post-preflop streets (frame echo).
-        if (delta === 0 && street !== 'preflop') {
+        // v0.2.7: skip $0 calls entirely (frame echo from just-acted seat).
+        if (delta === 0) {
           break;
         }
         // v0.2.15: if call would exceed remaining stack, cap and mark all-in.
         const rem = remaining(a.seat);
+        // v0.2.25: skip actions from seats already all-in (rem === 0).
+        if (rem === 0 && prevCommit > 0) {
+          break;
+        }
         if (delta > rem && rem > 0) {
           lines.push(`${name}: calls ${fmt(rem)} and is all-in`);
           playerCommit.set(a.seat, prevCommit + rem);
@@ -437,6 +447,8 @@ function renderStreetActions(lines, hand, street, alivePastStreet, startingStack
       }
       case 'bet': {
         const rem = remaining(a.seat);
+        // v0.2.25: skip actions from seats with no stack left.
+        if (rem === 0) break;
         const amt = a.amount || 0;
         if (amt > rem + prevCommit && rem > 0) {
           // v0.2.15: bet exceeds stack — render as all-in for max remaining.
@@ -456,6 +468,8 @@ function renderStreetActions(lines, hand, street, alivePastStreet, startingStack
       case 'raise': {
         const newTotal = a.amount || 0;
         const rem = remaining(a.seat);
+        // v0.2.25: skip actions from seats with no stack left.
+        if (rem === 0) break;
         if (newTotal > prevCommit + rem && rem > 0) {
           // v0.2.15: raise exceeds stack — cap at all-in.
           const actual = prevCommit + rem;
@@ -578,6 +592,15 @@ function renderStreetActions(lines, hand, street, alivePastStreet, startingStack
 
   let totalContributed = 0;
   for (const c of playerCommit.values()) totalContributed += c;
+
+  // v0.2.25: if SB and BB are the same seat (dead-blind sit-down where a
+  // returning player posts both blinds out of position), the player put in
+  // BOTH amounts into the pot but playerCommit only tracks one (BB level
+  // for action math). Add the extra SB amount to totalContributed so pot
+  // accounting matches PT4's expectation.
+  if (street === 'preflop' && hand.sbSeat && hand.bbSeat && hand.sbSeat === hand.bbSeat && hand.sb > 0) {
+    totalContributed += hand.sb;
+  }
 
   // v0.2.15: persist this street's commits into the cumulative map so the
   // next street's remaining-stack calculation is correct.
