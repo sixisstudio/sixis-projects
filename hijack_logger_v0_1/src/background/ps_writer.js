@@ -87,55 +87,41 @@ export function renderHand(hand) {
   // "Invalid pot size" because the action sum doesn't reach the SB+BB starting
   // pot. Synthesized blind lines use the BB position (snap.bbSeat) we know
   // from the snapshot.
-  const blindActions = (hand.streets.preflop || []).filter(a => a.kind === 'blind');
-  const sawSB = blindActions.some(b => b.type === 'sb');
-  const sawBB = blindActions.some(b => b.type === 'bb');
+  // v0.2.20: collect ALL blinds (real + synthesized) into one list, then emit
+  // in strict PokerStars order: SB → BB → Straddle. Hijack frequently fires
+  // BB before SB in straddle hands, and consolidates the real BB into the
+  // straddle event (so the BB synthesis is needed). Emitting in canonical
+  // order prevents PT4 from misinterpreting the blind positions.
+  const realBlinds = (hand.streets.preflop || []).filter(a => a.kind === 'blind');
+  const sawSB = realBlinds.some(b => b.type === 'sb');
+  const sawBB = realBlinds.some(b => b.type === 'bb');
+  const sawStraddle = realBlinds.some(b => b.type === 'straddle');
 
+  const blinds = realBlinds.slice();
+  // Synthesize SB if missing
   if (!sawSB && hand.sbSeat && hand.sb > 0) {
-    const seat = hand.seats.find(s => s.seat === hand.sbSeat);
-    if (seat) {
-      const name = resolveName(seat.guid, hand);
-      lines.push(`${name}: posts small blind ${hand.currencySign}${hand.sb.toFixed(2)}`);
-    }
-  }
-  if (!sawBB && hand.bbSeat && hand.bb > 0) {
-    const seat = hand.seats.find(s => s.seat === hand.bbSeat);
-    if (seat) {
-      const name = resolveName(seat.guid, hand);
-      lines.push(`${name}: posts big blind ${hand.currencySign}${hand.bb.toFixed(2)}`);
-    }
-  }
-  // Also handle the case where bb is known but sbSeat isn't — compute SB seat
-  // as the seat one before bbSeat (skipping unoccupied seats). Common when
-  // we joined mid-preflop and saw bbSeat from snap but no SB event yet.
-  if (!sawSB && !hand.sbSeat && hand.bbSeat && hand.sb > 0) {
+    blinds.push({ kind: 'blind', type: 'sb', seat: hand.sbSeat, amount: hand.sb });
+  } else if (!sawSB && !hand.sbSeat && hand.bbSeat && hand.sb > 0) {
     const seatOrder = hand.seats.map(s => s.seat).sort((a, b) => a - b);
     const bbIdx = seatOrder.indexOf(hand.bbSeat);
-    if (bbIdx > 0) {
-      const sbSeatId = seatOrder[bbIdx - 1];
-      const seat = hand.seats.find(s => s.seat === sbSeatId);
-      if (seat) {
-        const name = resolveName(seat.guid, hand);
-        lines.push(`${name}: posts small blind ${hand.currencySign}${hand.sb.toFixed(2)}`);
-      }
-    }
+    if (bbIdx > 0) blinds.push({ kind: 'blind', type: 'sb', seat: seatOrder[bbIdx - 1], amount: hand.sb });
+  }
+  // Synthesize BB if missing
+  if (!sawBB && hand.bbSeat && hand.bb > 0) {
+    blinds.push({ kind: 'blind', type: 'bb', seat: hand.bbSeat, amount: hand.bb });
   }
 
-  // v0.2.20: emit blind lines in strict PokerStars order: SB → BB → Straddle.
-  // Hijack sometimes fires events out of order in straddle hands (BB before SB)
-  // which confuses PT4's blind-position interpretation. Sort by type rank.
   const blindOrder = { sb: 0, bb: 1, straddle: 2 };
-  const sortedBlinds = blindActions.slice().sort((a, b) =>
-    (blindOrder[a.type] ?? 99) - (blindOrder[b.type] ?? 99)
-  );
-  for (const b of sortedBlinds) {
+  blinds.sort((a, b) => (blindOrder[a.type] ?? 99) - (blindOrder[b.type] ?? 99));
+
+  for (const b of blinds) {
     const seat = hand.seats.find(s => s.seat === b.seat);
     if (!seat) continue;
     const name = resolveName(seat.guid, hand);
     let blindName;
     if (b.type === 'sb') blindName = 'small blind';
     else if (b.type === 'bb') blindName = 'big blind';
-    else if (b.type === 'straddle') blindName = 'straddle';  // v0.2.20: drop "the"
+    else if (b.type === 'straddle') blindName = 'straddle';
     else blindName = 'ante';
     lines.push(`${name}: posts ${blindName} ${hand.currencySign}${b.amount.toFixed(2)}`);
   }
