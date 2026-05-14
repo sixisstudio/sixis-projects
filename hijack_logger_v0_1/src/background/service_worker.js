@@ -147,6 +147,8 @@ async function handleHandComplete(tabId, gameID, hand) {
     hand.degradedReason = (hand.degradedReason ? hand.degradedReason + ';' : '') + check.reasons.join(',');
     tab.degraded++;
     state.totals.degradedHands++;
+    // v0.2.31: log the explicit reason so users can see what tripped the flag.
+    console.warn(`[hjk] hand ${hand.handNo} DEGRADED: reason=${hand.degradedReason}`);
   }
   tab.drift.recordHand(degraded);
   tab.hands++;
@@ -409,4 +411,4 @@ function handlePopupMessage(msg, sender, sendResponse) {
   }
 })();
 
-console.log('[hjk] service worker booted v0.2.30');
+console.log('[hjk] service worker booted v0.2.31');
